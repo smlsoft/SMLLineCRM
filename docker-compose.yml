@@ -1,0 +1,20 @@
+services:
+  backend:
+    build: ./line-kpi-system
+    ports:
+      - "3102:3000"
+    env_file:
+      - ./line-kpi-system/.env
+    restart: unless-stopped
+
+  admin:
+    build: ./line-kpi-admin
+    ports:
+      - "3101:3000"
+    environment:
+      - NODE_ENV=production
+      - BACKEND_URL=http://backend:3000
+      - API_KEY=${API_KEY}
+    depends_on:
+      - backend
+    restart: unless-stopped
