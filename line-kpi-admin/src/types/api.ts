@@ -178,6 +178,18 @@ export interface MonitorGroup {
   conversations: MonitorConversation[];
 }
 
+export interface EmployeeStatus {
+  _id: string;
+  name: string;
+  employeeCode: string;
+  department?: string;
+  lastResponseAt: string | null;
+  lastResponseGroupId: string | null;
+  lastResponseGroupName: string | null;
+  idleMinutes: number | null;
+  status: 'active' | 'idle' | 'away';
+}
+
 export interface SystemConfigAiProvider {
   apiKey: string;
   model: string;

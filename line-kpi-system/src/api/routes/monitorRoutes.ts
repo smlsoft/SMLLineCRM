@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { Types } from 'mongoose';
+import { Types, PipelineStage } from 'mongoose';
 import { CustomerGroup } from '../../models/CustomerGroup';
 import { Conversation } from '../../models/Conversation';
+import { Employee } from '../../models/Employee';
 
 const router = Router();
 
@@ -262,6 +263,103 @@ router.get('/', async (_req: Request, res: Response) => {
   ];
 
   const results = await CustomerGroup.aggregate(pipeline);
+  res.json(results);
+});
+
+// GET /api/v1/monitor/employees
+// Returns all active employees with their last response time today and availability status
+router.get('/employees', async (_req: Request, res: Response) => {
+  const now = new Date();
+  const todayStart = new Date(`${now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })}T00:00:00+07:00`);
+  const todayEnd   = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const pipeline: PipelineStage[] = [
+    { $match: { isActive: true } },
+    {
+      $lookup: {
+        from: 'messages',
+        let: { empId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$employeeId', '$$empId'] },
+              senderType: 'employee',
+              timestamp: { $gte: todayStart, $lt: todayEnd },
+            },
+          },
+          { $sort: { timestamp: -1 } },
+          { $limit: 1 },
+          { $project: { _id: 0, timestamp: 1, customerGroupId: 1 } },
+        ],
+        as: '_lastMsg',
+      },
+    },
+    {
+      $addFields: {
+        _lastMsgDoc: { $arrayElemAt: ['$_lastMsg', 0] },
+      },
+    },
+    {
+      $addFields: {
+        lastResponseAt: { $ifNull: ['$_lastMsgDoc.timestamp', null] },
+        _lastGroupId: { $ifNull: ['$_lastMsgDoc.customerGroupId', null] },
+        idleMinutes: {
+          $cond: {
+            if: { $gt: ['$_lastMsgDoc.timestamp', null] },
+            then: { $divide: [{ $subtract: [now, '$_lastMsgDoc.timestamp'] }, 60000] },
+            else: null,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        status: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$_lastMsgDoc', null] }, then: 'away' },
+              { case: { $lt: [{ $divide: [{ $subtract: [now, '$_lastMsgDoc.timestamp'] }, 60000] }, 30] }, then: 'active' },
+              { case: { $lt: [{ $divide: [{ $subtract: [now, '$_lastMsgDoc.timestamp'] }, 60000] }, 120] }, then: 'idle' },
+            ],
+            default: 'away',
+          },
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: 'customergroups',
+        localField: '_lastGroupId',
+        foreignField: '_id',
+        as: '_groupDoc',
+      },
+    },
+    {
+      $addFields: {
+        lastResponseGroupId: { $ifNull: ['$_lastGroupId', null] },
+        lastResponseGroupName: { $ifNull: [{ $arrayElemAt: ['$_groupDoc.name', 0] }, null] },
+        _sortTier: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$status', 'active'] }, then: 0 },
+              { case: { $eq: ['$status', 'idle'] },   then: 1 },
+            ],
+            default: 2,
+          },
+        },
+      },
+    },
+    { $sort: { _sortTier: 1 as const, idleMinutes: 1 as const } },
+    { $unset: ['_sortTier', '_lastMsg', '_lastMsgDoc', '_lastGroupId', '_groupDoc'] },
+    {
+      $project: {
+        _id: 1, name: 1, employeeCode: 1, department: 1,
+        lastResponseAt: 1, lastResponseGroupId: 1, lastResponseGroupName: 1, idleMinutes: 1, status: 1,
+      },
+    },
+  ];
+
+  const results = await Employee.aggregate(pipeline);
   res.json(results);
 });
 

@@ -140,6 +140,8 @@ export const monitorApi = {
       `${P}/monitor/${conversationId}/resolve`,
       { method: 'PATCH', body: JSON.stringify({ resolutionStatus }) }
     ),
+  getEmployees: () =>
+    apiFetch<import('@/types/api').EmployeeStatus[]>(`${P}/monitor/employees`),
 };
 
 // ---- System Config ----
