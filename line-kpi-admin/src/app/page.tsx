@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { MessageSquare, Users, Clock, BarChart2, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
+import { MessageSquare, Users, Clock, BarChart2 } from 'lucide-react';
 
 const TREND_COLORS: Record<string, string> = {
   new: '#8b5cf6',
