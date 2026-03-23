@@ -27,5 +27,4 @@ skills-lock.json
 plans/
 
 # docker-compose
-docker-compose.yml
-docker-compose.override.yml
+docker compose/

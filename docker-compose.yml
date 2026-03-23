@@ -2,9 +2,21 @@ services:
   backend:
     build: ./line-kpi-system
     ports:
-      - "3102:3000"
-    env_file:
-      - ./line-kpi-system/.env
+      - "3102:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>
+      - API_KEY=your-api-key-here
+      - CONVERSATION_GAP_HOURS=4
+      - TZ=Asia/Bangkok
+      - AI_PROVIDER=kilo                        # openrouter หรือ kilo
+      - KILO_API_KEY=your-kilo-api-key
+      - KILO_MODEL=your-kilo-model
+      - KILO_BASE_URL=your-kilo-base-url
+      - CRON_CLOSE_CONVERSATIONS=0 22 * * *
+      - CRON_DAILY_EVALUATION=0 23 * * *
+      - EVALUATE_PREVIOUS_DAY=true
     restart: unless-stopped
 
   admin:
@@ -13,8 +25,8 @@ services:
       - "3101:3000"
     environment:
       - NODE_ENV=production
-      - BACKEND_URL=http://backend:3000
-      - API_KEY=${API_KEY}
+      - BACKEND_URL=http://backend:3001
+      - API_KEY=your-api-key-here             # ต้องตรงกับ API_KEY ของ backend
     depends_on:
       - backend
     restart: unless-stopped
