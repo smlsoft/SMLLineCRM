@@ -45,3 +45,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { path } = await params;
   return proxy(req, path.join('/'));
 }
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const { path } = await params;
+  return proxy(req, path.join('/'));
+}
