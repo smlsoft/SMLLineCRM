@@ -27,11 +27,6 @@ export interface IConversation extends Document {
   avgResponseMs?: number;
   maxResponseMs?: number;
 
-  resolutionStatus: 'resolved' | 'unresolved' | 'pending';
-  resolvedBy?: Types.ObjectId;
-  resolvedAt?: Date;
-  aiResolutionSuggestion?: 'resolved' | 'unresolved';
-
   tags: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -62,15 +57,6 @@ const conversationSchema = new Schema<IConversation>(
     firstResponseMs: { type: Number },
     avgResponseMs: { type: Number },
     maxResponseMs: { type: Number },
-
-    resolutionStatus: {
-      type: String,
-      enum: ['resolved', 'unresolved', 'pending'],
-      default: 'pending',
-    },
-    resolvedBy: { type: Schema.Types.ObjectId, ref: 'Employee' },
-    resolvedAt: { type: Date },
-    aiResolutionSuggestion: { type: String, enum: ['resolved', 'unresolved'] },
 
     tags: [{ type: String }],
   },

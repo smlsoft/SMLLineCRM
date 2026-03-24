@@ -135,11 +135,6 @@ export const messagesApi = {
 // ---- Monitor ----
 export const monitorApi = {
   get: () => apiFetch<import('@/types/api').MonitorGroup[]>(`${P}/monitor`),
-  resolve: (conversationId: string, resolutionStatus: 'resolved' | 'unresolved' | 'pending') =>
-    apiFetch<{ _id: string; resolutionStatus: string; resolvedAt: string | null }>(
-      `${P}/monitor/${conversationId}/resolve`,
-      { method: 'PATCH', body: JSON.stringify({ resolutionStatus }) }
-    ),
   getEmployees: () =>
     apiFetch<import('@/types/api').EmployeeStatus[]>(`${P}/monitor/employees`),
 };

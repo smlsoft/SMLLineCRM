@@ -153,8 +153,6 @@ export interface MonitorEmployee {
 export interface MonitorConversation {
   _id: string;
   responseStatus: 'slow' | 'waiting' | 'normal';
-  resolutionStatus: 'resolved' | 'unresolved' | 'pending';
-  aiResolutionSuggestion?: 'resolved' | 'unresolved';
   pendingMs: number;
   lastCustomerMessageAt: string | null;
   lastMessageAt: string;

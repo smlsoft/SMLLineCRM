@@ -156,10 +156,6 @@ export class DailyEvaluationJob {
       );
     }
 
-    // AI resolution classification per conversation
-    for (const conv of conversations) {
-      await this.classifyResolution(ai, conv, groupName, dateStr, messages);
-    }
   }
 
   private async summarizeByThreads(
@@ -237,11 +233,9 @@ export class DailyEvaluationJob {
       .map((c) => c.firstResponseMs)
       .filter((v): v is number => v !== undefined);
     const firstUnder5Min = firstResponseMsList.filter((ms) => ms <= 5 * 60 * 1000).length;
-    const resolvedCases = convs.filter((c) => c.resolutionStatus === 'resolved').length;
 
     const rawMetrics = {
       conversationsHandled: convIds.length,
-      resolvedCases,
       messagesSent: empMessages.length,
       avgResponseMs: avg(responseGaps),
       maxResponseMs: responseGaps.length ? Math.max(...responseGaps) : undefined,
@@ -261,7 +255,6 @@ export class DailyEvaluationJob {
         $set: {
           customerGroupId,
           conversationsHandled: rawMetrics.conversationsHandled,
-          resolvedCases: rawMetrics.resolvedCases,
           messagesSent: rawMetrics.messagesSent,
           avgResponseMs: rawMetrics.avgResponseMs,
           maxResponseMs: rawMetrics.maxResponseMs,
@@ -306,54 +299,6 @@ export class DailyEvaluationJob {
     }
   }
 
-  private async classifyResolution(
-    ai: AiAdapter,
-    conv: LeanConversation,
-    groupName: string,
-    dateStr: string,
-    allMessages: LeanMessage[]
-  ): Promise<void> {
-    // Skip if already manually resolved/unresolved by a human
-    if (conv.resolutionStatus !== 'pending') return;
-
-    const convMsgs = allMessages
-      .filter((m) => m.conversationId.toString() === conv._id.toString())
-      .filter((m) => m.messageType === 'text' && m.textContent);
-
-    if (convMsgs.length === 0) return;
-
-    // Rule-based shortcut: last message from customer → almost certainly unresolved
-    const lastMsg = convMsgs[convMsgs.length - 1];
-    if (lastMsg.senderType === 'customer') {
-      await Conversation.updateOne(
-        { _id: conv._id },
-        { $set: { aiResolutionSuggestion: 'unresolved' } }
-      );
-      return;
-    }
-
-    // AI-assisted: employee sent the last message — let AI decide
-    const transcript = convMsgs
-      .slice(-20) // last 20 messages to stay within token budget
-      .map((m) => `[${formatTime(m.timestamp)}] [${m.senderType === 'employee' ? 'พนักงาน' : 'ลูกค้า'}]: ${m.textContent}`)
-      .join('\n');
-
-    try {
-      const result = await ai.analyzeResolution({
-        groupName,
-        date: dateStr,
-        messageLog: transcript,
-        lastSenderType: lastMsg.senderType as 'employee' | 'customer',
-      });
-
-      await Conversation.updateOne(
-        { _id: conv._id },
-        { $set: { aiResolutionSuggestion: result.resolution } }
-      );
-    } catch (err) {
-      console.error(`[DailyEvaluationJob] Resolution classification failed for conv ${conv._id}:`, err);
-    }
-  }
 }
 
 // --- Helpers ---

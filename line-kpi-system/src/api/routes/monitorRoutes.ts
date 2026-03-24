@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { Types, PipelineStage } from 'mongoose';
+import { PipelineStage } from 'mongoose';
 import { CustomerGroup } from '../../models/CustomerGroup';
-import { Conversation } from '../../models/Conversation';
 import { Employee } from '../../models/Employee';
 
 const router = Router();
@@ -53,8 +52,6 @@ router.get('/', async (_req: Request, res: Response) => {
               lastMessageAt: '$$c.lastMessageAt',
               lastCustomerMessageAt: '$$c.lastCustomerMessageAt',
               responseStatusOverride: '$$c.responseStatusOverride',
-              resolutionStatus: '$$c.resolutionStatus',
-              aiResolutionSuggestion: '$$c.aiResolutionSuggestion',
               participantEmployeeIds: '$$c.participantEmployeeIds',
               _customerLast: {
                 $gt: [
@@ -220,8 +217,6 @@ router.get('/', async (_req: Request, res: Response) => {
             in: {
               _id: '$$cs._id',
               responseStatus: '$$cs.responseStatus',
-              resolutionStatus: '$$cs.resolutionStatus',
-              aiResolutionSuggestion: '$$cs.aiResolutionSuggestion',
               pendingMs: '$$cs.pendingMs',
               lastCustomerMessageAt: '$$cs.lastCustomerMessageAt',
               lastMessageAt: '$$cs.lastMessageAt',
@@ -361,43 +356,6 @@ router.get('/employees', async (_req: Request, res: Response) => {
 
   const results = await Employee.aggregate(pipeline);
   res.json(results);
-});
-
-// PATCH /api/v1/monitor/:conversationId/resolve
-router.patch('/:conversationId/resolve', async (req: Request, res: Response) => {
-  const { conversationId } = req.params;
-  const { resolutionStatus } = req.body as { resolutionStatus: 'resolved' | 'unresolved' | 'pending' };
-
-  if (!['resolved', 'unresolved', 'pending'].includes(resolutionStatus)) {
-    res.status(400).json({ error: 'Invalid resolutionStatus' });
-    return;
-  }
-
-  if (!Types.ObjectId.isValid(conversationId)) {
-    res.status(400).json({ error: 'Invalid conversationId' });
-    return;
-  }
-
-  const update: Record<string, unknown> = { resolutionStatus };
-  if (resolutionStatus === 'resolved') {
-    update.resolvedAt = new Date();
-  } else {
-    update.resolvedAt = null;
-    update.resolvedBy = null;
-  }
-
-  const conv = await Conversation.findByIdAndUpdate(
-    conversationId,
-    { $set: update },
-    { new: true }
-  );
-
-  if (!conv) {
-    res.status(404).json({ error: 'Conversation not found' });
-    return;
-  }
-
-  res.json({ _id: conv._id, resolutionStatus: conv.resolutionStatus, resolvedAt: conv.resolvedAt });
 });
 
 export { router as monitorRoutes };

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { monitorApi, messagesApi } from '@/lib/api';
 import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message } from '@/types/api';
 import { formatMs, formatDateTime, cn } from '@/lib/utils';
-import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, Check, X, Minus, Bot, MessageCircle } from 'lucide-react';
+import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 
 const REFRESH_INTERVAL = 30;
@@ -122,25 +122,6 @@ export default function MonitorPage() {
     loadEmployees();
   };
 
-  const handleResolve = useCallback(
-    async (conversationId: string, resolutionStatus: 'resolved' | 'unresolved' | 'pending') => {
-      try {
-        await monitorApi.resolve(conversationId, resolutionStatus);
-        setGroups((prev) =>
-          prev.map((g) => ({
-            ...g,
-            conversations: g.conversations.map((c) =>
-              c._id === conversationId ? { ...c, resolutionStatus } : c
-            ),
-          }))
-        );
-      } catch {
-        // ignore; next auto-refresh will correct state
-      }
-    },
-    []
-  );
-
   const urgentCount = groups.filter((g) => g.priorityStatus === 'urgent').length;
   const warningCount = groups.filter((g) => g.priorityStatus === 'warning').length;
   const normalCount = groups.filter((g) => g.priorityStatus === 'normal').length;
@@ -227,7 +208,7 @@ export default function MonitorPage() {
           ) : (
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
               {groups.map((g) => (
-                <MonitorGroupCard key={g._id} group={g} onResolve={handleResolve} onOpenModal={setGroupConvModal} />
+                <MonitorGroupCard key={g._id} group={g} onOpenModal={setGroupConvModal} />
               ))}
             </div>
           )}
@@ -330,19 +311,6 @@ export default function MonitorPage() {
       {groupConvModal && (
         <GroupConversationModal
           group={groupConvModal}
-          onResolve={(convId, status) => {
-            handleResolve(convId, status);
-            setGroupConvModal((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    conversations: prev.conversations.map((c) =>
-                      c._id === convId ? { ...c, resolutionStatus: status } : c
-                    ),
-                  }
-                : null
-            );
-          }}
           onClose={() => setGroupConvModal(null)}
         />
       )}
@@ -563,11 +531,9 @@ function GroupMessagesModal({
 
 function GroupConversationModal({
   group,
-  onResolve,
   onClose,
 }: {
   group: MonitorGroup;
-  onResolve: (id: string, status: 'resolved' | 'unresolved' | 'pending') => void;
   onClose: () => void;
 }) {
   const cfg = PRIORITY_CONFIG[group.priorityStatus];
@@ -611,57 +577,6 @@ function GroupConversationModal({
           </button>
         </div>
 
-        {/* Conversation resolve strip */}
-        {group.conversations.length > 0 && (
-          <div className="px-5 py-3 border-b border-surface-container-high/30 flex-shrink-0 space-y-1.5">
-            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">สนทนาที่เปิดอยู่</p>
-            {group.conversations.map((conv, idx) => {
-              const rsCfg = RESPONSE_STATUS_CONFIG[conv.responseStatus];
-              const isResolved = conv.resolutionStatus === 'resolved';
-              return (
-                <div key={conv._id} className={cn('flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-sm', isResolved ? 'bg-emerald-500/5 text-on-surface/50' : 'bg-surface-container')}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-bold text-on-surface-variant">#{idx + 1}</span>
-                    <span className={cn('text-[10px] font-bold', rsCfg.cls)}>{rsCfg.label}</span>
-                    {conv.pendingMs > 0 && (
-                      <span className="text-[10px] text-on-surface-variant">รอ {formatMs(conv.pendingMs)}</span>
-                    )}
-                    {conv.lastCustomerMessageAt && (
-                      <span className="text-[10px] text-on-surface-variant hidden sm:inline">· {formatDateTime(conv.lastCustomerMessageAt)}</span>
-                    )}
-                    {conv.aiResolutionSuggestion && conv.resolutionStatus === 'pending' && (
-                      <span className={cn('inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full', conv.aiResolutionSuggestion === 'unresolved' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400')}>
-                        <Bot className="size-2.5" />
-                        AI: {conv.aiResolutionSuggestion === 'unresolved' ? 'ยังไม่จบ' : 'น่าจะจบแล้ว'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {conv.resolutionStatus !== 'resolved' ? (
-                      <button onClick={() => onResolve(conv._id, 'resolved')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold hover:bg-emerald-500/20 transition-colors">
-                        <Check className="size-3" /> จบแล้ว
-                      </button>
-                    ) : (
-                      <button onClick={() => onResolve(conv._id, 'pending')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface-variant text-[10px] font-bold hover:bg-surface-container-high/80 transition-colors">
-                        <Minus className="size-3" /> ยกเลิก
-                      </button>
-                    )}
-                    {conv.resolutionStatus !== 'unresolved' ? (
-                      <button onClick={() => onResolve(conv._id, 'unresolved')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-[10px] font-bold hover:bg-red-500/20 transition-colors">
-                        <X className="size-3" /> ยังไม่จบ
-                      </button>
-                    ) : (
-                      <button onClick={() => onResolve(conv._id, 'pending')} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface-variant text-[10px] font-bold hover:bg-surface-container-high/80 transition-colors">
-                        <Minus className="size-3" /> ยกเลิก
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2" style={{ overflowAnchor: 'none' }}>
           {loadingMsgs ? (
@@ -695,11 +610,9 @@ function GroupConversationModal({
 
 function MonitorGroupCard({
   group,
-  onResolve,
   onOpenModal,
 }: {
   group: MonitorGroup;
-  onResolve: (id: string, status: 'resolved' | 'unresolved' | 'pending') => void;
   onOpenModal: (group: MonitorGroup) => void;
 }) {
   const cfg = PRIORITY_CONFIG[group.priorityStatus];
@@ -775,7 +688,6 @@ function MonitorGroupCard({
               key={conv._id}
               conv={conv}
               index={idx + 1}
-              onResolve={onResolve}
             />
           ))}
         </div>
@@ -787,88 +699,26 @@ function MonitorGroupCard({
 function ConversationRow({
   conv,
   index,
-  onResolve,
 }: {
   conv: MonitorConversation;
   index: number;
-  onResolve: (id: string, status: 'resolved' | 'unresolved' | 'pending') => void;
 }) {
   const rsCfg = RESPONSE_STATUS_CONFIG[conv.responseStatus];
-  const isResolved = conv.resolutionStatus === 'resolved';
 
   return (
-    <div
-      className={cn(
-        'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm',
-        isResolved
-          ? 'bg-emerald-500/5 text-on-surface/50'
-          : 'bg-surface-container'
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm bg-surface-container">
+      <span className="text-[10px] font-bold text-on-surface-variant w-4 flex-shrink-0">
+        #{index}
+      </span>
+      <span className={cn('text-[10px] font-bold', rsCfg.cls)}>{rsCfg.label}</span>
+      {conv.pendingMs > 0 && (
+        <span className="text-[10px] text-on-surface-variant">รอ {formatMs(conv.pendingMs)}</span>
       )}
-    >
-      <div className="flex items-center gap-2 min-w-0 flex-wrap">
-        <span className="text-[10px] font-bold text-on-surface-variant w-4 flex-shrink-0">
-          #{index}
+      {conv.lastCustomerMessageAt && (
+        <span className="text-[10px] text-on-surface-variant hidden sm:inline">
+          · {formatDateTime(conv.lastCustomerMessageAt)}
         </span>
-        <span className={cn('text-[10px] font-bold', rsCfg.cls)}>{rsCfg.label}</span>
-        {conv.pendingMs > 0 && (
-          <span className="text-[10px] text-on-surface-variant">รอ {formatMs(conv.pendingMs)}</span>
-        )}
-        {conv.lastCustomerMessageAt && (
-          <span className="text-[10px] text-on-surface-variant hidden sm:inline">
-            · {formatDateTime(conv.lastCustomerMessageAt)}
-          </span>
-        )}
-        {conv.aiResolutionSuggestion && conv.resolutionStatus === 'pending' && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full',
-              conv.aiResolutionSuggestion === 'unresolved'
-                ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-                : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
-            )}
-          >
-            <Bot className="size-2.5" />
-            AI: {conv.aiResolutionSuggestion === 'unresolved' ? 'ยังไม่จบ' : 'น่าจะจบแล้ว'}
-          </span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-1 flex-shrink-0">
-        {conv.resolutionStatus !== 'resolved' ? (
-          <button
-            onClick={() => onResolve(conv._id, 'resolved')}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold hover:bg-emerald-500/20 transition-colors"
-          >
-            <Check className="size-3" />
-            จบแล้ว
-          </button>
-        ) : (
-          <button
-            onClick={() => onResolve(conv._id, 'pending')}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface-variant text-[10px] font-bold hover:bg-surface-container-high/80 transition-colors"
-          >
-            <Minus className="size-3" />
-            ยกเลิก
-          </button>
-        )}
-        {conv.resolutionStatus !== 'unresolved' ? (
-          <button
-            onClick={() => onResolve(conv._id, 'unresolved')}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-[10px] font-bold hover:bg-red-500/20 transition-colors"
-          >
-            <X className="size-3" />
-            ยังไม่จบ
-          </button>
-        ) : (
-          <button
-            onClick={() => onResolve(conv._id, 'pending')}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface-variant text-[10px] font-bold hover:bg-surface-container-high/80 transition-colors"
-          >
-            <Minus className="size-3" />
-            ยกเลิก
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
