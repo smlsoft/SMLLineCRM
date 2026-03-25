@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { monitorApi, messagesApi } from '@/lib/api';
+import { monitorApi, messagesApi, conversationsApi } from '@/lib/api';
 import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message } from '@/types/api';
 import { formatMs, formatDateTime, cn } from '@/lib/utils';
-import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle } from 'lucide-react';
+import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 
 const REFRESH_INTERVAL = 30;
@@ -540,6 +540,19 @@ function GroupConversationModal({
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [overrides, setOverrides] = useState<Record<string, 'normal' | null>>({});
+  const [overriding, setOverriding] = useState<Record<string, boolean>>({});
+
+  const handleOverride = async (convId: string, value: 'normal' | null) => {
+    setOverriding(prev => ({ ...prev, [convId]: true }));
+    try {
+      await conversationsApi.setResponseStatus(convId, value);
+      setOverrides(prev => ({ ...prev, [convId]: value }));
+    } catch {}
+    finally {
+      setOverriding(prev => ({ ...prev, [convId]: false }));
+    }
+  };
 
   useEffect(() => {
     messagesApi
@@ -603,6 +616,57 @@ function GroupConversationModal({
           )}
           <div ref={bottomRef} />
         </div>
+
+        {/* Resolved footer */}
+        {(() => {
+          const pending = group.conversations.filter(conv => {
+            const effective = overrides[conv._id] === 'normal' ? 'normal' : conv.responseStatus;
+            return effective !== 'normal' || overrides[conv._id] === 'normal';
+          });
+          if (pending.length === 0) return null;
+          return (
+            <div className="border-t border-surface-container-high/30 p-3 flex-shrink-0 space-y-1.5">
+              {pending.map(conv => {
+                const effective = overrides[conv._id] === 'normal' ? 'normal' : conv.responseStatus;
+                const isResolved = overrides[conv._id] === 'normal';
+                const isBusy = !!overriding[conv._id];
+                const statusCfg = effective === 'slow'
+                  ? { dot: '🔴', label: 'ด่วน', cls: 'text-red-600 dark:text-red-400' }
+                  : effective === 'waiting'
+                  ? { dot: '🟡', label: 'รอ', cls: 'text-amber-600 dark:text-amber-400' }
+                  : { dot: '🟢', label: 'ปกติ', cls: 'text-emerald-600 dark:text-emerald-400' };
+                return (
+                  <div key={conv._id} className="flex items-center justify-between gap-2 px-1">
+                    <div className="flex items-center gap-1.5 text-xs min-w-0">
+                      <span>{statusCfg.dot}</span>
+                      <span className={cn('font-semibold', statusCfg.cls)}>{statusCfg.label}</span>
+                      {conv.pendingMs > 0 && !isResolved && (
+                        <span className="text-on-surface-variant">– รอ {formatMs(conv.pendingMs)}</span>
+                      )}
+                    </div>
+                    {isResolved ? (
+                      <button
+                        onClick={() => handleOverride(conv._id, null)}
+                        disabled={isBusy}
+                        className="text-xs px-2.5 py-1 rounded-xl hover:bg-surface-container-low transition-colors text-on-surface-variant disabled:opacity-50"
+                      >
+                        {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'ยกเลิก'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleOverride(conv._id, 'normal')}
+                        disabled={isBusy}
+                        className="text-xs px-2.5 py-1 rounded-xl hover:bg-primary/5 transition-colors text-primary font-bold uppercase tracking-wide flex items-center gap-1 disabled:opacity-50"
+                      >
+                        {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><CheckCircle className="w-3.5 h-3.5" /> Resolved</>}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

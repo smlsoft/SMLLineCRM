@@ -1,17 +1,7 @@
-import { configService } from '../ConfigService';
-import { AiAdapter } from './AiAdapter';
-import { OpenRouterAdapter } from './OpenRouterAdapter';
-import { KiloAdapter } from './KiloAdapter';
+import { AiAdapter, AiTaskName } from './AiAdapter';
+import { aiRouter } from './AiRouter';
 
-export async function createAiAdapter(): Promise<AiAdapter> {
-  const cfg = await configService.getConfig();
-  switch (cfg.ai.provider) {
-    case 'kilo':
-      return new KiloAdapter();
-    case 'openrouter':
-    default:
-      return new OpenRouterAdapter();
-  }
-}
-
+export { aiRouter };
+export { AiRouter } from './AiRouter';
+export type { AiTaskName, AdapterConfig } from './AiAdapter';
 export type { AiAdapter };

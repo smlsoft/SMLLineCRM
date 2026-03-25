@@ -36,8 +36,7 @@ export const config = {
   },
 
   cron: {
-    dailyEvaluation: optional('CRON_DAILY_EVALUATION', '0 23 * * *'),
-    issueAnalysis: optional('CRON_ISSUE_ANALYSIS', '30 23 * * *'),
+    dailyAnalysis: optional('CRON_DAILY_ANALYSIS', '0 23 * * *'),
   },
 
   evaluatePreviousDay: optional('EVALUATE_PREVIOUS_DAY', 'true') === 'true',

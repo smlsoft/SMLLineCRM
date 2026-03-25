@@ -1,26 +1,32 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { configService } from '../../services/ConfigService';
+import { IAiProviderGroup, IAiProviderInGroup, AiTaskName } from '../../models/SystemConfig';
+import { aiRouter } from '../../services/ai';
+import { KNOWN_PROVIDERS_MAP } from '../../services/ai/knownProviders';
 
 const router = Router();
 
 const MASK = '••••••';
 
+function maskProviderInGroup(p: IAiProviderInGroup): IAiProviderInGroup {
+  return { ...p, apiKey: p.apiKey ? MASK : '' };
+}
+
+function maskGroup(group: IAiProviderGroup): IAiProviderGroup {
+  return { ...group, providers: group.providers.map(maskProviderInGroup) };
+}
+
 function maskConfig(cfg: Awaited<ReturnType<typeof configService.getConfig>>) {
+  const maskedGroups: Record<string, IAiProviderGroup> = {};
+  for (const [key, group] of Object.entries(cfg.ai.providerGroups)) {
+    maskedGroups[key] = maskGroup(group);
+  }
   return {
     jobs: cfg.jobs,
     ai: {
-      provider: cfg.ai.provider,
-      openrouter: {
-        apiKey: cfg.ai.openrouter.apiKey ? MASK : '',
-        model: cfg.ai.openrouter.model,
-        baseUrl: cfg.ai.openrouter.baseUrl,
-      },
-      kilo: {
-        apiKey: cfg.ai.kilo.apiKey ? MASK : '',
-        model: cfg.ai.kilo.model,
-        baseUrl: cfg.ai.kilo.baseUrl,
-      },
+      providerGroups: maskedGroups,
+      tasks: cfg.ai.tasks,
     },
     updatedAt: cfg.updatedAt,
   };
@@ -33,98 +39,309 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 // PUT /api/v1/config
+// Accepts partial updates: jobs, ai.providerGroups, ai.tasks
 router.put('/', async (req: Request, res: Response) => {
   const body = req.body as {
     jobs?: {
-      dailyEvaluation?: { enabled?: boolean };
-      issueAnalysis?: { enabled?: boolean };
+      dailyAnalysis?: { enabled?: boolean };
     };
     ai?: {
-      provider?: 'openrouter' | 'kilo';
-      openrouter?: { apiKey?: string; model?: string; baseUrl?: string };
-      kilo?: { apiKey?: string; model?: string; baseUrl?: string };
+      providerGroups?: Record<
+        string,
+        {
+          name?: string;
+          providers?: Array<{
+            providerKey?: string;
+            apiKey?: string;
+            baseUrl?: string;
+            models?: string[];
+            enabled?: boolean;
+          }>;
+        } | null
+      >;
+      tasks?: Partial<Record<AiTaskName, { groupId?: string }>>;
     };
   };
 
-  // Build flat $set patch — skip masked apiKey values
   const patch: Record<string, unknown> = {};
+  const unsetFields: Record<string, string> = {};
 
-  if (body.jobs?.dailyEvaluation?.enabled !== undefined) {
-    patch['jobs.dailyEvaluation.enabled'] = body.jobs.dailyEvaluation.enabled;
+  // --- Jobs ---
+  if (body.jobs?.dailyAnalysis?.enabled !== undefined) {
+    patch['jobs.dailyAnalysis.enabled'] = body.jobs.dailyAnalysis.enabled;
   }
-  if (body.jobs?.issueAnalysis?.enabled !== undefined) {
-    patch['jobs.issueAnalysis.enabled'] = body.jobs.issueAnalysis.enabled;
+
+  // --- Provider Groups ---
+  if (body.ai?.providerGroups) {
+    for (const [groupId, groupData] of Object.entries(body.ai.providerGroups)) {
+      if (groupData === null) {
+        // Delete this group
+        unsetFields[`ai.providerGroups.${groupId}`] = '';
+        continue;
+      }
+
+      if (groupData.name !== undefined) {
+        patch[`ai.providerGroups.${groupId}.name`] = groupData.name;
+      }
+
+      if (groupData.providers !== undefined) {
+        // Store entire providers array (with masking guard on apiKey)
+        const storedProviders = groupData.providers.map((p) => ({
+          providerKey: p.providerKey ?? '',
+          apiKey:      (p.apiKey && p.apiKey !== MASK) ? p.apiKey : undefined,
+          baseUrl:     p.baseUrl ?? '',
+          models:      p.models ?? [],
+          enabled:     p.enabled ?? true,
+        }));
+
+        // We need to set the whole providers array — use $set on the array field
+        // But we also need to preserve existing apiKeys for masked entries.
+        // To do this correctly, we fetch current group and merge.
+        patch[`ai.providerGroups.${groupId}.providers`] = storedProviders;
+      }
+    }
   }
-  if (body.ai?.provider) {
-    patch['ai.provider'] = body.ai.provider;
+
+  // --- Tasks ---
+  if (body.ai?.tasks) {
+    const tasks = body.ai.tasks;
+    const taskNames: AiTaskName[] = ['issueAnalysis'];
+    const tasksPatch: Partial<Record<AiTaskName, { groupId: string }>> = {};
+    for (const task of taskNames) {
+      const t = tasks[task];
+      if (t?.groupId !== undefined) {
+        tasksPatch[task] = { groupId: t.groupId };
+      }
+    }
+    if (Object.keys(tasksPatch).length > 0) {
+      // Set entire ai.tasks object to avoid Mongoose dot-notation issues
+      // when ai sub-document contains both Map and nested object fields
+      patch['ai.tasks'] = tasksPatch;
+    }
   }
-  if (body.ai?.openrouter) {
-    const or = body.ai.openrouter;
-    if (or.apiKey && or.apiKey !== MASK) patch['ai.openrouter.apiKey'] = or.apiKey;
-    if (or.model !== undefined) patch['ai.openrouter.model'] = or.model;
-    if (or.baseUrl !== undefined) patch['ai.openrouter.baseUrl'] = or.baseUrl;
-  }
-  if (body.ai?.kilo) {
-    const k = body.ai.kilo;
-    if (k.apiKey && k.apiKey !== MASK) patch['ai.kilo.apiKey'] = k.apiKey;
-    if (k.model !== undefined) patch['ai.kilo.model'] = k.model;
-    if (k.baseUrl !== undefined) patch['ai.kilo.baseUrl'] = k.baseUrl;
+
+  // For providers array, we need to merge apiKeys from existing config when masked
+  // Resolve stored providers before writing
+  if (body.ai?.providerGroups) {
+    const cfg = await configService.getConfig();
+
+    for (const [groupId, groupData] of Object.entries(body.ai.providerGroups)) {
+      if (!groupData || !groupData.providers) continue;
+      const key = `ai.providerGroups.${groupId}.providers`;
+      if (!patch[key]) continue;
+
+      const existing = cfg.ai.providerGroups[groupId];
+
+      const incomingProviders = groupData.providers;
+      // Match existing provider by providerKey (not index) to preserve API keys correctly after reorder
+      const existingByKey = new Map(
+        (existing?.providers ?? []).map((p) => [p.providerKey, p])
+      );
+      const mergedProviders = incomingProviders.map((p) => {
+        const existingProvider = p.providerKey ? existingByKey.get(p.providerKey) : undefined;
+        const apiKey =
+          p.apiKey && p.apiKey !== MASK
+            ? p.apiKey
+            : existingProvider?.apiKey ?? '';
+        return {
+          providerKey: p.providerKey ?? '',
+          apiKey,
+          baseUrl:     p.baseUrl ?? existingProvider?.baseUrl ?? '',
+          models:      p.models ?? existingProvider?.models ?? [],
+          enabled:     p.enabled ?? existingProvider?.enabled ?? true,
+        };
+      });
+      patch[key] = mergedProviders;
+    }
   }
 
   const updated = await configService.updateConfig(patch);
-  res.json(maskConfig(updated));
+
+  // Handle unsets (group deletions)
+  if (Object.keys(unsetFields).length > 0) {
+    const { SystemConfig } = await import('../../models/SystemConfig');
+    await SystemConfig.updateOne({ _id: 'singleton' }, { $unset: unsetFields });
+    configService.clearCache();
+  }
+
+  const fresh = await configService.getConfig();
+  res.json(maskConfig(fresh));
 });
 
 // POST /api/v1/config/test-ai
-router.post('/test-ai', async (_req: Request, res: Response) => {
-  const cfg = await configService.getConfig();
-  const provider = cfg.ai.provider;
-
-  let apiKey: string;
-  let model: string;
-  let baseUrl: string;
-
-  if (provider === 'kilo') {
-    ({ apiKey, model, baseUrl } = cfg.ai.kilo);
-  } else {
-    ({ apiKey, model, baseUrl } = cfg.ai.openrouter);
-  }
-
-  if (!apiKey) {
-    res.status(400).json({ success: false, error: 'API key not configured' });
-    return;
-  }
+// Body: { task?: AiTaskName }
+router.post('/test-ai', async (req: Request, res: Response) => {
+  const task = (req.body?.task as AiTaskName) ?? 'issueAnalysis';
 
   try {
+    const { providerName, modelName } = await aiRouter.getAdapterForTask(task);
+
+    const cfg = await configService.getConfig();
+    const groupId = cfg.ai.tasks?.[task]?.groupId ?? 'grp_default';
+    const group = cfg.ai.providerGroups[groupId];
+    const providerEntry = group?.providers.find((p) => p.providerKey === providerName);
+
+    if (!providerEntry?.apiKey) {
+      res.status(200).json({ success: false, error: `API key not configured for provider: ${providerName}` });
+      return;
+    }
+
+    const { apiKey, baseUrl } = providerEntry;
+    const knownDef = KNOWN_PROVIDERS_MAP[providerName];
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    let url = `${baseUrl}/chat/completions`;
+
+    if (!knownDef || knownDef.authType === 'bearer') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (knownDef.authType === 'x-api-key') {
+      headers['x-api-key'] = apiKey;
+    } else if (knownDef.authType === 'query-param') {
+      url += `?key=${encodeURIComponent(apiKey)}`;
+    }
+    if (knownDef?.extraHeaders) Object.assign(headers, knownDef.extraHeaders);
+
     const response = await axios.post(
-      `${baseUrl}/chat/completions`,
+      url,
       {
-        model,
+        model: modelName,
         messages: [{ role: 'user', content: 'Reply with exactly: {"ok":true}' }],
         temperature: 0,
         max_tokens: 20,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          ...(provider === 'openrouter' ? {
-            'HTTP-Referer': 'https://line-kpi-system',
-            'X-Title': 'LINE KPI System',
-          } : {}),
-        },
-        timeout: 15000,
-      }
+      { headers, timeout: 15000 }
     );
 
-    const content = response.data.choices?.[0]?.message?.content ?? '';
-    res.json({ success: true, provider, model, response: content.slice(0, 100) });
+    const content =
+      response.data.choices?.[0]?.message?.content ??
+      response.data.content?.[0]?.text ??
+      '';
+    res.json({ success: true, provider: providerName, model: modelName, task, response: content.slice(0, 100) });
   } catch (err: unknown) {
     const msg = axios.isAxiosError(err)
       ? `${err.response?.status ?? ''} ${JSON.stringify(err.response?.data ?? err.message)}`
       : String(err);
-    res.status(200).json({ success: false, provider, model, error: msg.slice(0, 300) });
+    res.status(200).json({ success: false, error: msg.slice(0, 300) });
   }
 });
+
+// POST /api/v1/config/list-models
+// Body: { provider: string, apiKey?: string }
+router.post('/list-models', async (req: Request, res: Response) => {
+  const { provider, apiKey: providedKey } = req.body as { provider: string; apiKey?: string };
+
+  const knownDef = KNOWN_PROVIDERS_MAP[provider];
+  if (!knownDef) {
+    res.status(400).json({ models: [], error: `Unknown provider: ${provider}` });
+    return;
+  }
+
+  if (knownDef.modelsPath === null) {
+    res.json({ models: [], note: `${knownDef.displayName} ไม่มี model list endpoint` });
+    return;
+  }
+
+  // Try to get a stored apiKey from any group that has this provider
+  let storedApiKey = '';
+  let storedBaseUrl = '';
+  if (!providedKey || providedKey === MASK) {
+    const cfg = await configService.getConfig();
+    outer: for (const group of Object.values(cfg.ai.providerGroups)) {
+      for (const p of group.providers) {
+        if (p.providerKey === provider && p.apiKey) {
+          storedApiKey = p.apiKey;
+          storedBaseUrl = p.baseUrl || knownDef.defaultBaseUrl;
+          break outer;
+        }
+      }
+    }
+  }
+
+  const apiKey = (providedKey && providedKey !== MASK) ? providedKey : storedApiKey;
+  const baseUrl = storedBaseUrl || knownDef.defaultBaseUrl;
+
+  if (!apiKey && knownDef.modelsRequiresAuth) {
+    res.status(400).json({ models: [], error: 'API key required but not provided' });
+    return;
+  }
+
+  try {
+    const models = await fetchProviderModels({ provider, apiKey, baseUrl, knownDef });
+    res.json({ models });
+  } catch (err: unknown) {
+    const msg = axios.isAxiosError(err)
+      ? `${err.response?.status ?? ''} ${JSON.stringify(err.response?.data ?? err.message)}`
+      : String(err);
+    res.status(200).json({ models: [], error: msg.slice(0, 300) });
+  }
+});
+
+// ---- Helpers ----
+
+interface ModelOption { id: string; name: string; created?: number }
+
+async function fetchProviderModels(opts: {
+  provider: string;
+  apiKey: string;
+  baseUrl: string;
+  knownDef: (typeof KNOWN_PROVIDERS_MAP)[string];
+}): Promise<ModelOption[]> {
+  const { provider, apiKey, baseUrl, knownDef } = opts;
+
+  const headers: Record<string, string> = {};
+  let url = `${baseUrl}${knownDef.modelsPath}`;
+
+  if (knownDef.modelsRequiresAuth) {
+    if (knownDef.authType === 'bearer') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (knownDef.authType === 'x-api-key') {
+      headers['x-api-key'] = apiKey;
+    } else if (knownDef.authType === 'query-param') {
+      url += `?key=${encodeURIComponent(apiKey)}`;
+    }
+    if (knownDef.extraHeaders) Object.assign(headers, knownDef.extraHeaders);
+  }
+
+  const response = await axios.get(url, { headers, timeout: 15000 });
+  return normalizeModels(provider, response.data);
+}
+
+function normalizeModels(provider: string, data: unknown): ModelOption[] {
+  if (!data || typeof data !== 'object') return [];
+  const d = data as Record<string, unknown>;
+
+  if (provider === 'gemini') {
+    const list = (d['models'] as Array<Record<string, unknown>>) ?? [];
+    return list.map((m) => ({
+      id: String(m['name'] ?? '').replace(/^models\//, ''),
+      name: String(m['displayName'] ?? m['name'] ?? ''),
+    }));
+  }
+
+  if (provider === 'anthropic') {
+    const list = (d['data'] as Array<Record<string, unknown>>) ?? [];
+    return list.map((m) => ({
+      id: String(m['id'] ?? ''),
+      name: String(m['display_name'] ?? m['id'] ?? ''),
+      created: m['created_at'] ? new Date(String(m['created_at'])).getTime() / 1000 : undefined,
+    }));
+  }
+
+  if (provider === 'openrouter') {
+    const list = (d['data'] as Array<Record<string, unknown>>) ?? [];
+    return list.map((m) => ({
+      id: String(m['id'] ?? ''),
+      name: String(m['name'] ?? m['id'] ?? ''),
+    }));
+  }
+
+  // OpenAI-compatible: { data: [{ id: '...', created: 1234 }] }
+  const list = (d['data'] as Array<Record<string, unknown>>) ?? [];
+  return list.map((m) => ({
+    id: String(m['id'] ?? ''),
+    name: String(m['id'] ?? ''),
+    created: typeof m['created'] === 'number' ? m['created'] : undefined,
+  }));
+}
 
 export { router as configRoutes };

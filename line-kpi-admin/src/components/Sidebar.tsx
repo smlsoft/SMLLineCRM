@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Bot, UserCheck,
-  BarChart2, FileText, MessageSquare, AlertTriangle, Activity, Settings
+  BarChart2, FileText, MessageSquare, Activity, Settings, Tag
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -14,9 +14,8 @@ const navItems = [
   { label: 'กลุ่มลูกค้า', href: '/groups', icon: Users },
   { label: 'LINE OA', href: '/oas', icon: Bot },
   { label: 'พนักงาน', href: '/employees', icon: UserCheck },
-  { label: 'รายงาน KPI', href: '/kpi', icon: BarChart2 },
   { label: 'สรุปรายวัน', href: '/summaries', icon: FileText },
-  { label: 'ปัญหาลูกค้า', href: '/issues', icon: AlertTriangle },
+  { label: 'ประเภทปัญหา', href: '/issue-categories', icon: Tag },
   { label: 'บทสนทนา', href: '/conversations', icon: MessageSquare },
   { label: 'ตั้งค่าระบบ', href: '/settings', icon: Settings },
 ];

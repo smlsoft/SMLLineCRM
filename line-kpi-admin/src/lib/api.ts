@@ -49,54 +49,22 @@ export const employeesApi = {
     apiFetch(`${P}/employees/${id}`, { method: 'DELETE' }),
 };
 
-// ---- KPI Records ----
-export const kpiApi = {
-  list: (params: { date?: string; groupId?: string; employeeId?: string; startDate?: string; endDate?: string }) => {
-    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
-    return apiFetch<import('@/types/api').KpiRecord[]>(`${P}/kpi?${q}`);
-  },
-};
-
-// ---- Daily Summaries ----
-export const summariesApi = {
-  list: (params: { date?: string; groupId?: string }) => {
-    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
-    return apiFetch<import('@/types/api').DailySummary[]>(`${P}/summaries?${q}`);
-  },
-  trigger: (body: { date: string }) =>
-    apiFetch(`${P}/summaries/trigger`, { method: 'POST', body: JSON.stringify(body) }),
-};
-
-// ---- Issue Reports ----
-export const issueReportsApi = {
-  list: (params: { date?: string; groupId?: string }) => {
-    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
-    return apiFetch<import('@/types/api').IssueReport[]>(`${P}/issue-reports?${q}`);
-  },
-  trend: (params: { groupId?: string; category?: string; weeks?: number }) => {
-    const q = new URLSearchParams();
-    if (params.groupId) q.set('groupId', params.groupId);
-    if (params.category) q.set('category', params.category);
-    if (params.weeks) q.set('weeks', String(params.weeks));
-    return apiFetch<import('@/types/api').IssueReport[]>(`${P}/issue-reports/trend?${q}`);
-  },
-  trigger: (body: { date: string }) =>
-    apiFetch(`${P}/issue-reports/trigger`, { method: 'POST', body: JSON.stringify(body) }),
-};
-
-// ---- KPI Leaderboard + Trend ----
-export const kpiLeaderboardApi = {
-  leaderboard: (params: { groupId?: string; startDate?: string; endDate?: string }) => {
-    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
-    return apiFetch<import('@/types/api').LeaderboardEntry[]>(`${P}/kpi/leaderboard?${q}`);
-  },
-  trend: (params: { employeeId?: string; groupId?: string; weeks?: number }) => {
-    const q = new URLSearchParams();
-    if (params.employeeId) q.set('employeeId', params.employeeId);
-    if (params.groupId) q.set('groupId', params.groupId);
-    if (params.weeks) q.set('weeks', String(params.weeks));
-    return apiFetch<import('@/types/api').KpiTrendPoint[]>(`${P}/kpi/trend?${q}`);
-  },
+// ---- Issue Category Master ----
+export const issueCategoriesApi = {
+  list: () =>
+    apiFetch<import('@/types/api').IssueCategoryMaster[]>(`${P}/issue-categories`),
+  create: (body: { name: string; description?: string; keywords?: string[] }) =>
+    apiFetch<import('@/types/api').IssueCategoryMaster>(`${P}/issue-categories`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  update: (id: string, body: Partial<{ name: string; description: string; keywords: string[]; isActive: boolean }>) =>
+    apiFetch<import('@/types/api').IssueCategoryMaster>(`${P}/issue-categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deactivate: (id: string) =>
+    apiFetch(`${P}/issue-categories/${id}`, { method: 'DELETE' }),
 };
 
 // ---- Conversations ----
@@ -139,6 +107,40 @@ export const monitorApi = {
     apiFetch<import('@/types/api').EmployeeStatus[]>(`${P}/monitor/employees`),
 };
 
+// ---- Daily Report ----
+export const dailyReportApi = {
+  getSummary: (date: string) =>
+    apiFetch<import('@/types/api').DailyReport | null>(`${P}/daily-report?date=${date}`),
+  getJobs: (params: {
+    date: string;
+    groupId?: string;
+    category?: string;
+    employeeId?: string;
+    sort?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    q.set('date', params.date);
+    if (params.groupId) q.set('groupId', params.groupId);
+    if (params.category) q.set('category', params.category);
+    if (params.employeeId) q.set('employeeId', params.employeeId);
+    if (params.sort) q.set('sort', params.sort);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    return apiFetch<import('@/types/api').DailyReportJobsResult>(`${P}/daily-report/jobs?${q}`);
+  },
+  getFilterOptions: (date: string) =>
+    apiFetch<import('@/types/api').DailyReportFilterOptions>(`${P}/daily-report/filter-options?date=${date}`),
+  getJobStatus: () =>
+    apiFetch<import('@/types/api').DailyAnalysisRunState>(`${P}/daily-report/job-status`),
+  trigger: (body: { date?: string; force?: boolean }) =>
+    apiFetch<{ ok: boolean; message: string }>(`${P}/daily-report/trigger`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
 // ---- System Config ----
 export const configApi = {
   get: () => apiFetch<import('@/types/api').SystemConfig>(`${P}/config`),
@@ -147,9 +149,14 @@ export const configApi = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
-  testAi: () =>
-    apiFetch<{ success: boolean; provider?: string; model?: string; response?: string; error?: string }>(
+  testAi: (task?: import('@/types/api').AiTaskName) =>
+    apiFetch<{ success: boolean; provider?: string; model?: string; task?: string; response?: string; error?: string }>(
       `${P}/config/test-ai`,
-      { method: 'POST', body: '{}' }
+      { method: 'POST', body: JSON.stringify({ task }) }
     ),
+  listModels: (provider: string, apiKey?: string) =>
+    apiFetch<import('@/types/api').ListModelsResponse>(`${P}/config/list-models`, {
+      method: 'POST',
+      body: JSON.stringify({ provider, apiKey }),
+    }),
 };

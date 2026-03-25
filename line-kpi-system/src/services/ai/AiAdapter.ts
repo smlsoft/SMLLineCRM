@@ -1,80 +1,26 @@
-export interface GroupSummaryResult {
-  summaryText: string;
-  topIssues: string[];
-  sentimentScore?: number;
-  promptTokens: number;
-  completionTokens: number;
+import { ConversationInput, ConversationCategoryResult } from '../../jobs/prompts/dailyAnalysis';
+
+export interface MasterCategoryHint {
+  name: string;
+  description?: string;
+  keywords?: string[];
 }
 
-export interface StaffKpiResult {
-  qualityScore: number;
-  kpiNarrative: string;
-  strengths: string[];
-  areasToImprove: string[];
-  promptTokens: number;
-  completionTokens: number;
-}
-
-export interface GroupSummaryParams {
+export interface DailyConversationAnalysisParams {
   groupName: string;
   date: string;
-  messageLog: string;
-  rawMetrics: {
-    totalConversations: number;
-    totalMessages: number;
-    avgFirstResponseMs?: number;
-    avgResponseMs?: number;
-  };
+  conversations: ConversationInput[];
+  masterCategories?: MasterCategoryHint[];
 }
 
-export interface StaffKpiParams {
-  employeeName: string;
-  date: string;
-  rawMetrics: {
-    conversationsHandled: number;
-    messagesSent: number;
-    avgResponseMs?: number;
-    maxResponseMs?: number;
-    firstResponseRate?: number;
-  };
-  sampleMessages: string;
+export interface AdapterConfig {
+  apiKey: string;
+  model: string;
+  baseUrl: string;
 }
 
-export interface IssueCategory {
-  category: string;
-  count: number;
-  percentage: number;
-  examples: string[];
-  trend: 'up' | 'down' | 'stable' | 'new';
-}
-
-export interface IssueAnalysisResult {
-  issueCategories: IssueCategory[];
-  recurringIssues: string[];
-  emergingIssues: string[];
-  rootCauseInsight: string;
-  recommendedActions: string[];
-  promptTokens: number;
-  completionTokens: number;
-}
-
-export interface IssueAnalysisParams {
-  groupName: string;
-  date: string;
-  messageLog: string;
-  previousCategories: string[];
-}
-
-export interface ResolutionResult {
-  resolution: 'resolved' | 'unresolved';
-  reason: string;
-  promptTokens: number;
-  completionTokens: number;
-}
+export type AiTaskName = 'issueAnalysis';
 
 export interface AiAdapter {
-  generateGroupSummary(params: GroupSummaryParams): Promise<GroupSummaryResult>;
-  evaluateStaffKpi(params: StaffKpiParams): Promise<StaffKpiResult>;
-  analyzeIssues(params: IssueAnalysisParams): Promise<IssueAnalysisResult>;
-  analyzeResolution(params: import('../../jobs/prompts/resolutionAnalysis').ResolutionAnalysisParams): Promise<ResolutionResult>;
+  analyzeDailyConversations(params: DailyConversationAnalysisParams): Promise<ConversationCategoryResult[]>;
 }

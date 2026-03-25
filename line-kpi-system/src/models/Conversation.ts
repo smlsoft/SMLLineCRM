@@ -2,6 +2,14 @@ import { Schema, model, Document, Types } from 'mongoose';
 
 export type ConversationStatus = 'open' | 'closed';
 
+export interface ITranscriptEntry {
+  senderDisplayName: string;
+  senderType: 'employee' | 'customer';
+  messageType: string;
+  textContent?: string;
+  timestamp: Date;
+}
+
 export interface IConversation extends Document {
   customerGroupId: Types.ObjectId;
   lineGroupId: string;
@@ -27,7 +35,11 @@ export interface IConversation extends Document {
   avgResponseMs?: number;
   maxResponseMs?: number;
 
+  issueCategory?: string;
+  issueSummary?: string;
+
   tags: string[];
+  transcript?: ITranscriptEntry[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,7 +70,25 @@ const conversationSchema = new Schema<IConversation>(
     avgResponseMs: { type: Number },
     maxResponseMs: { type: Number },
 
+    issueCategory: { type: String },
+    issueSummary: { type: String },
+
     tags: [{ type: String }],
+    transcript: {
+      type: [
+        new Schema<ITranscriptEntry>(
+          {
+            senderDisplayName: { type: String, required: true },
+            senderType: { type: String, enum: ['employee', 'customer'], required: true },
+            messageType: { type: String, required: true },
+            textContent: { type: String },
+            timestamp: { type: Date, required: true },
+          },
+          { _id: false }
+        ),
+      ],
+      default: undefined,
+    },
   },
   { timestamps: true }
 );

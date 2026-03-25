@@ -30,6 +30,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   const conversations = await Conversation.find(filter)
     .populate('customerGroupId', 'name')
+    .populate('participantEmployeeIds', 'name employeeCode')
     .sort({ lastMessageAt: -1 })
     .limit(200)
     .lean();
@@ -208,6 +209,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   const conversation = await Conversation.findById(req.params.id)
     .populate('customerGroupId', 'name')
+    .populate('participantEmployeeIds', 'name employeeCode')
     .lean();
 
   if (!conversation) {

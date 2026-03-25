@@ -1,42 +1,75 @@
 import { Schema, model } from 'mongoose';
-import { config } from '../config';
+
+// ---- New interfaces ----
+
+export interface IAiProviderInGroup {
+  providerKey: string;  // e.g. 'openrouter', 'anthropic'
+  apiKey: string;       // masked on GET responses
+  baseUrl: string;      // '' = use KNOWN_PROVIDERS default
+  models: string[];     // ordered priority — try [0] first
+  enabled: boolean;
+}
+
+export interface IAiProviderGroup {
+  name: string;                     // user-defined display name
+  providers: IAiProviderInGroup[];  // ordered by priority (failover order)
+}
+
+export type AiTaskName = 'issueAnalysis';
 
 export interface ISystemConfig {
   _id: string;
   jobs: {
-    dailyEvaluation: { enabled: boolean };
-    issueAnalysis: { enabled: boolean };
+    dailyAnalysis: { enabled: boolean };
   };
   ai: {
-    provider: 'openrouter' | 'kilo';
-    openrouter: { apiKey: string; model: string; baseUrl: string };
-    kilo: { apiKey: string; model: string; baseUrl: string };
+    // After toObject({ flattenMaps: true }) this becomes a plain Record
+    providerGroups: Record<string, IAiProviderGroup>;
+    tasks: Record<AiTaskName, { groupId: string }>;
   };
   updatedAt: Date;
 }
+
+// ---- Mongoose sub-schemas ----
+
+const providerInGroupSchema = new Schema<IAiProviderInGroup>(
+  {
+    providerKey: { type: String, required: true },
+    apiKey:      { type: String, default: '' },
+    baseUrl:     { type: String, default: '' },
+    models:      { type: [String], default: [] },
+    enabled:     { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const providerGroupSchema = new Schema<IAiProviderGroup>(
+  {
+    name:      { type: String, required: true },
+    providers: { type: [providerInGroupSchema], default: [] },
+  },
+  { _id: false }
+);
 
 const systemConfigSchema = new Schema<ISystemConfig>(
   {
     _id: { type: String, default: 'singleton' },
     jobs: {
-      dailyEvaluation: { enabled: { type: Boolean, default: true } },
-      issueAnalysis: { enabled: { type: Boolean, default: true } },
+      dailyAnalysis: { enabled: { type: Boolean, default: true } },
     },
     ai: {
-      provider: {
-        type: String,
-        enum: ['openrouter', 'kilo'],
-        default: config.aiProvider,
+      providerGroups: {
+        type: Map,
+        of: providerGroupSchema,
+        default: () => ({
+          grp_default: {
+            name: 'Default Group',
+            providers: [],
+          },
+        }),
       },
-      openrouter: {
-        apiKey: { type: String, default: config.openrouter.apiKey },
-        model: { type: String, default: config.openrouter.model },
-        baseUrl: { type: String, default: config.openrouter.baseUrl },
-      },
-      kilo: {
-        apiKey: { type: String, default: config.kilo.apiKey },
-        model: { type: String, default: config.kilo.model },
-        baseUrl: { type: String, default: config.kilo.baseUrl },
+      tasks: {
+        issueAnalysis: { groupId: { type: String, default: 'grp_default' } },
       },
     },
     updatedAt: { type: Date, default: () => new Date() },

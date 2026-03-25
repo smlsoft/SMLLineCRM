@@ -31,6 +31,13 @@ export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('th-TH', {
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Bangkok',
+  });
+}
+
 export function maskLineId(id: string): string {
   if (id.length <= 8) return id;
   return id.slice(0, 8) + '...';

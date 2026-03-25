@@ -30,79 +30,22 @@ export interface Employee {
   updatedAt: string;
 }
 
-export interface KpiRecord {
+export interface IssueCategoryMaster {
   _id: string;
-  employeeId: { _id: string; name: string; employeeCode: string; department?: string };
-  customerGroupId: { _id: string; name: string };
-  date: string;
-  conversationsHandled: number;
-  resolvedCases: number;
-  messagesSent: number;
-  avgFirstResponseMs?: number;
-  avgResponseMs?: number;
-  maxResponseMs?: number;
-  firstResponseRate?: number;
-  qualityScore?: number;
-  kpiNarrative?: string;
-  strengths: string[];
-  areasToImprove: string[];
-  status: 'pending' | 'complete' | 'failed';
+  name: string;
+  description?: string;
+  keywords?: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface DailySummary {
-  _id: string;
-  customerGroupId: { _id: string; name: string };
-  date: string;
-  totalConversations: number;
-  totalMessages: number;
-  avgFirstResponseMs?: number;
-  avgResponseMs?: number;
-  summaryText?: string;
-  topIssues: string[];
-  sentimentScore?: number;
-  status: 'pending' | 'complete' | 'failed';
-  generatedAt?: string;
-}
-
-export interface IssueCategory {
-  category: string;
-  count: number;
-  percentage: number;
-  examples: string[];
-  trend: 'up' | 'down' | 'stable' | 'new';
-}
-
-export interface IssueReport {
-  _id: string;
-  customerGroupId: { _id: string; name: string };
-  date: string;
-  issueCategories: IssueCategory[];
-  recurringIssues: string[];
-  emergingIssues: string[];
-  rootCauseInsight?: string;
-  recommendedActions: string[];
-  status: 'pending' | 'complete' | 'failed';
-  generatedAt?: string;
-}
-
-export interface LeaderboardEntry {
-  rank: number;
-  employee: { _id: string; name: string; employeeCode: string; department?: string };
-  avgQualityScore: number;
-  avgFirstResponseRate: number;
-  avgConversationsHandled: number;
-  avgResolvedCases: number;
-  compositeScore: number;
-  evaluationCount: number;
-}
-
-export interface KpiTrendPoint {
-  week: string;
-  avgQualityScore: number | null;
-  avgResponseMs: number | null;
-  avgFirstResponseRate: number | null;
-  avgConversationsHandled: number | null;
-  avgResolvedCases: number | null;
+export interface TranscriptEntry {
+  senderDisplayName: string;
+  senderType: 'employee' | 'customer';
+  messageType: string;
+  textContent?: string;
+  timestamp: string;
 }
 
 export interface Conversation {
@@ -122,6 +65,10 @@ export interface Conversation {
   employeeMessageCount: number;
   avgResponseMs?: number;
   firstResponseMs?: number;
+  participantEmployeeIds?: { _id: string; name: string; employeeCode: string }[];
+  transcript?: TranscriptEntry[];
+  issueCategory?: string;
+  issueSummary?: string;
 }
 
 export interface GroupedConversationResult {
@@ -168,9 +115,7 @@ export interface MonitorGroup {
   slowCount: number;
   waitingCount: number;
   openConvCount: number;
-  /** ms since the oldest unanswered customer message; null if no pending */
   oldestPendingMs: number | null;
-  /** ISO datetime of most recent message across open conversations; null if none */
   lastActivityAt: string | null;
   assignedEmployees: MonitorEmployee[];
   conversations: MonitorConversation[];
@@ -188,21 +133,97 @@ export interface EmployeeStatus {
   status: 'active' | 'idle' | 'away';
 }
 
-export interface SystemConfigAiProvider {
+// ---- Daily Report ----
+
+export interface EmployeeBreakdown {
+  employeeId: string;
+  employeeName: string;
+  messageCount: number;
+}
+
+export interface IssueCategorySummary {
+  category: string;
+  count: number;
+}
+
+export interface DailyReport {
+  _id: string;
+  date: string;
+  groupCount: number;
+  jobCount: number;
+  totalMessages: number;
+  customerMessages: number;
+  employeeMessages: number;
+  employeeBreakdown: EmployeeBreakdown[];
+  issueCategorySummary: IssueCategorySummary[];
+  status: 'pending' | 'complete' | 'failed';
+  totalGroups: number;
+  processedGroups: number;
+  aiProvider?: string;
+  aiModel?: string;
+  generatedAt?: string;
+}
+
+export interface DailyReportJobsResult {
+  data: Conversation[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface DailyReportFilterOptions {
+  groups: { _id: string; name: string }[];
+  categories: string[];
+  employees: { _id: string; name: string; employeeCode: string }[];
+}
+
+export interface DailyAnalysisRunState {
+  date: string;
+  status: 'idle' | 'running' | 'complete' | 'failed';
+  totalGroups: number;
+  processedGroups: number;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+// ---- AI Provider Groups ----
+
+export interface AiProviderInGroup {
+  providerKey: string;
   apiKey: string;
-  model: string;
   baseUrl: string;
+  models: string[];
+  enabled: boolean;
+}
+
+export interface AiProviderGroup {
+  name: string;
+  providers: AiProviderInGroup[];
+}
+
+export type AiTaskName = 'issueAnalysis';
+
+export interface AiModelOption {
+  id: string;
+  name: string;
+  created?: number;
+}
+
+export interface ListModelsResponse {
+  models: AiModelOption[];
+  note?: string;
+  error?: string;
 }
 
 export interface SystemConfig {
   jobs: {
-    dailyEvaluation: { enabled: boolean };
-    issueAnalysis: { enabled: boolean };
+    dailyAnalysis: { enabled: boolean };
   };
   ai: {
-    provider: 'openrouter' | 'kilo';
-    openrouter: SystemConfigAiProvider;
-    kilo: SystemConfigAiProvider;
+    providerGroups: Record<string, AiProviderGroup>;
+    tasks: Record<AiTaskName, { groupId: string }>;
   };
   updatedAt: string;
 }
