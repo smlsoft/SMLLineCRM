@@ -6,6 +6,7 @@ import { ResponsePairer } from './ResponsePairer';
 import { MetricsUpdater } from './MetricsUpdater';
 import { Message, MessageType } from '../models/Message';
 import { Conversation } from '../models/Conversation';
+import { fetchAndStoreImage } from '../services/ImageFetchService';
 
 export interface IncomingMessage {
   lineMessageId: string;
@@ -82,8 +83,9 @@ export class MessageProcessor {
         : undefined;
 
     // 5. Persist message (idempotent — unique index on lineMessageId)
+    let savedMsg;
     try {
-      await Message.create({
+      savedMsg = await Message.create({
         conversationId,
         customerGroupId: new Types.ObjectId(customerGroupId),
         lineGroupId,
@@ -108,6 +110,15 @@ export class MessageProcessor {
         return;
       }
       throw err;
+    }
+
+    // 5b. Fire-and-forget: ดึงรูปและเก็บใน MessageMedia collection (best-effort)
+    if (messageType === 'image') {
+      fetchAndStoreImage({
+        messageDocId: savedMsg._id as Types.ObjectId,
+        lineMessageId,
+        oaAccessToken,
+      }).catch(() => {}); // catch ป้องกัน UnhandledPromiseRejection (fetchAndStoreImage catch ภายในอยู่แล้ว)
     }
 
     // 6. Update conversation metrics atomically

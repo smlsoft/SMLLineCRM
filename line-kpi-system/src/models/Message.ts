@@ -17,6 +17,7 @@ export interface IMessage extends Document {
 
   messageType: MessageType;
   textContent?: string;
+  mediaId?: Types.ObjectId;
   rawEvent: Record<string, unknown>;
 
   timestamp: Date;
@@ -45,6 +46,7 @@ const messageSchema = new Schema<IMessage>(
       required: true,
     },
     textContent: { type: String },
+    mediaId: { type: Schema.Types.ObjectId, ref: 'MessageMedia' },
     rawEvent: { type: Schema.Types.Mixed, required: true },
 
     timestamp: { type: Date, required: true },
