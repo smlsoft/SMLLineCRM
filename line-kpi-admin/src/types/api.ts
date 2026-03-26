@@ -217,6 +217,69 @@ export interface ListModelsResponse {
   error?: string;
 }
 
+// ---- Auth & Admin Users ----
+
+export type PermissionKey =
+  | 'dashboard'
+  | 'monitor'
+  | 'groups'
+  | 'oas'
+  | 'employees'
+  | 'summaries'
+  | 'issue-categories'
+  | 'conversations'
+  | 'settings'
+  | 'users'
+  | 'permission-groups';
+
+export const ALL_PERMISSION_KEYS: PermissionKey[] = [
+  'dashboard', 'monitor', 'groups', 'oas', 'employees',
+  'summaries', 'issue-categories', 'conversations', 'settings',
+  'users', 'permission-groups',
+];
+
+export const PERMISSION_LABELS: Record<PermissionKey, string> = {
+  'dashboard': 'แดชบอร์ด',
+  'monitor': 'จอ Monitor',
+  'groups': 'กลุ่มลูกค้า',
+  'oas': 'LINE OA',
+  'employees': 'พนักงาน',
+  'summaries': 'สรุปรายวัน',
+  'issue-categories': 'ประเภทปัญหา',
+  'conversations': 'บทสนทนา',
+  'settings': 'ตั้งค่าระบบ',
+  'users': 'ผู้ใช้งาน',
+  'permission-groups': 'กลุ่มสิทธิ์',
+};
+
+export interface UserInfo {
+  username: string;
+  displayName: string;
+  isSuperAdmin: boolean;
+  permissions: PermissionKey[];
+}
+
+export interface PermissionGroup {
+  _id: string;
+  name: string;
+  description?: string;
+  permissions: PermissionKey[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminUser {
+  _id: string;
+  username: string;
+  displayName: string;
+  groupId?: string | { _id: string; name: string; permissions: PermissionKey[] };
+  additionalPermissions: PermissionKey[];
+  isSuperAdmin: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SystemConfig {
   jobs: {
     dailyAnalysis: { enabled: boolean };

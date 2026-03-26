@@ -25,8 +25,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **เป้าหมายหลัก:**
 - วัด response time ของพนักงานต่อ message ของลูกค้าในกลุ่ม LINE
-- ให้ AI วิเคราะห์คุณภาพการตอบ (qualityScore 1-10) พร้อม feedback รายบุคคล
-- สรุปรายงาน KPI รายวันให้ผู้จัดการ
+- ให้ AI categorize ปัญหาและสรุปแต่ละ conversation รายวัน
+- สรุปรายงาน Daily Report รายวันให้ผู้จัดการ
 - รองรับหลาย LINE OA และหลายกลุ่มลูกค้า
 
 **โครงสร้าง Monorepo:**
@@ -79,45 +79,60 @@ SMLLineCRM/
 │   │   ├── GroupRegistry.ts         cache mapping กลุ่ม LINE → OA
 │   │   ├── ConfigService.ts         MongoDB config singleton (60s TTL cache)
 │   │   └── ai/
-│   │       ├── AiAdapter.ts         interface + task name types
+│   │       ├── AiAdapter.ts         interface + AiTaskName type
 │   │       ├── AiRouter.ts          failover orchestrator (callWithFailover)
-│   │       ├── UniversalAdapter.ts  single adapter for all providers
+│   │       ├── UniversalAdapter.ts  single adapter for all 12+ providers
 │   │       └── knownProviders.ts    12 provider definitions (baseUrl, authType)
-│   ├── jobs/               scheduled jobs รายวัน
+│   ├── jobs/               scheduled jobs
 │   │   ├── ConversationCloseJob.ts  ปิด conversation หมดเวลา (22:00)
-│   │   ├── DailyEvaluationJob.ts    ประเมิน KPI + สร้างรายงาน (23:00)
-│   │   ├── IssueAnalysisJob.ts      วิเคราะห์ปัญหาลูกค้าด้วย AI (23:30)
-│   │   └── prompts/                 AI prompt templates
+│   │   ├── DailyAnalysisJob.ts      categorize conversations + สร้าง DailyReport (23:00)
+│   │   └── prompts/
+│   │       └── dailyAnalysis.ts     AI prompt สำหรับ batch categorize conversations
 │   ├── models/             Mongoose schemas
 │   │   ├── LineOa.ts, Employee.ts, CustomerGroup.ts   Master data
+│   │   ├── AdminUser.ts, PermissionGroup.ts            Admin auth + permission groups
 │   │   ├── IssueCategoryMaster.ts                     หมวดหมู่ปัญหา (user-managed)
 │   │   ├── SystemConfig.ts                            config singleton (AI providers)
 │   │   ├── Message.ts, Conversation.ts                Transaction data
-│   │   ├── KpiRecord.ts, DailySummary.ts, IssueReport.ts  Report data
+│   │   ├── DailyReport.ts                             รายงานรายวัน (รวม KPI + issues)
 │   │   └── LineProfile.ts                             Cache display name
 │   ├── api/                REST API routes + auth middleware
+│   │   ├── middleware/
+│   │   │   ├── auth.ts        apiKeyAuth — X-API-Key หรือ Authorization: Bearer
+│   │   │   └── jwtAuth.ts     jwtAuth, requireSuperAdmin, requirePermission(key)
 │   │   └── routes/
+│   │       ├── authRoutes.ts           POST /login, /logout, GET /me
+│   │       ├── adminUserRoutes.ts      CRUD AdminUser (requires 'users' permission)
+│   │       ├── permissionGroupRoutes.ts CRUD PermissionGroup (requires 'permission-groups')
 │   │       ├── configRoutes.ts         GET/PUT config, test-ai, list-models
-│   │       └── issueCategoryRoutes.ts  CRUD หมวดหมู่ปัญหา
+│   │       ├── issueCategoryRoutes.ts  CRUD หมวดหมู่ปัญหา
+│   │       ├── dailyReportRoutes.ts    DailyReport CRUD + trigger + job-status
+│   │       └── conversationRoutes.ts  ประวัติ conversation + response override
 │   └── config/             Environment variables
 │
 ├── line-kpi-admin/src/
+│   ├── middleware.ts           Route-level auth guard (JWT verify via jose + permission check)
 │   ├── app/
-│   │   ├── page.tsx                หน้า Dashboard หลัก (มี Top Issues widget)
-│   │   ├── kpi/                    รายงาน KPI (มี Employee Trend chart)
-│   │   ├── issues/                 วิเคราะห์ปัญหาลูกค้า (IssueReport)
-│   │   ├── issue-categories/       จัดการหมวดหมู่ปัญหา (CRUD)
-│   │   ├── settings/               ตั้งค่า AI providers + jobs
-│   │   ├── monitor/                real-time monitoring พนักงาน
-│   │   ├── employees/              จัดการพนักงาน
-│   │   ├── groups/                 จัดการกลุ่มลูกค้า
-│   │   ├── conversations/          ประวัติ conversation
-│   │   ├── summaries/              สรุปรายวัน
-│   │   ├── oas/                    จัดการ LINE OA
-│   │   └── api/proxy/[...path]/    API proxy (ซ่อน API key)
-│   ├── components/ui/      shadcn UI components
-│   ├── lib/api.ts          centralized API client
-│   ├── lib/knownProviders.ts  provider definitions สำหรับ frontend
+│   │   ├── (auth)/login/       หน้า Login (ไม่มี Sidebar layout)
+│   │   ├── (dashboard)/        Route group — ทุกหน้าที่ต้องล็อกอิน (มี Sidebar layout)
+│   │   │   ├── layout.tsx      Sidebar layout สำหรับทุกหน้า dashboard
+│   │   │   ├── page.tsx        หน้า Dashboard หลัก (DailyReport summary widget)
+│   │   │   ├── issue-categories/   จัดการหมวดหมู่ปัญหา (CRUD)
+│   │   │   ├── settings/           ตั้งค่า AI providers + jobs
+│   │   │   ├── monitor/            real-time monitoring พนักงาน + conversation override
+│   │   │   ├── users/              จัดการ AdminUser (ต้องมี 'users' permission)
+│   │   │   ├── permission-groups/  จัดการ PermissionGroup (ต้องมี 'permission-groups' permission)
+│   │   │   ├── employees/          จัดการพนักงาน
+│   │   │   ├── groups/             จัดการกลุ่มลูกค้า
+│   │   │   ├── conversations/      ประวัติ conversation
+│   │   │   ├── summaries/          สรุปรายวัน
+│   │   │   └── oas/                จัดการ LINE OA
+│   │   └── api/proxy/[...path]/ API proxy (ซ่อน API key + inject JWT สำหรับ admin routes)
+│   ├── components/
+│   │   ├── Sidebar.tsx         อ่าน user-info cookie ใน useEffect (ไม่ใช่ตอน render)
+│   │   └── ui/                 shadcn UI components
+│   ├── lib/api.ts          centralized API client (dailyReportApi, conversationsApi, authApi)
+│   ├── lib/knownProviders.ts  provider definitions สำหรับ frontend (mirror ของ backend)
 │   └── types/api.ts        TypeScript types
 │
 └── plans/                  เอกสารโปรเจ็ค (project-overview.md, workflow-diagram.md)
@@ -143,12 +158,34 @@ LINE Webhook → MessageProcessor → ConversationResolver → ResponsePairer �
 
 ### Idempotency Guards
 - `Message.lineMessageId` — unique index ป้องกัน LINE webhook retry ทำให้ message ซ้ำ
-- `KpiRecord.(employeeId + date)` — unique index ป้องกัน evaluation ซ้ำ
 
 ### Conversation Lifecycle
 - สร้างใหม่เมื่อลูกค้าส่ง message แรก หรือ message หลังจาก conversation ถูกปิดแล้ว
 - ปิดอัตโนมัติเมื่อไม่มี activity เกิน `CONVERSATION_GAP_HOURS` (default: 4 ชั่วโมง)
 - `ConversationCloseJob` ทำงานทุกวัน 22:00 เพื่อปิด conversation ที่ค้างอยู่
+- `Conversation` มีฟิลด์เพิ่มเติม: `issueCategory`, `issueSummary`, `transcript[]`, `responseStatusOverride`
+- Monitor UI สามารถ override `responseStatusOverride` เป็น `'normal'` (resolved) หรือ `null` (automatic) ได้
+
+### Daily Analysis (DailyAnalysisJob — ทุกวัน 23:00)
+งาน batch เดียวแทน 3 jobs เดิม (DailyEvaluationJob + IssueAnalysisJob + ConversationCloseJob):
+- ดึง conversation ทั้งหมดของวันนั้น พร้อม transcript
+- ส่ง batch ให้ AI categorize แต่ละ conversation (task: `issueAnalysis`)
+- บันทึก `issueCategory` + `issueSummary` กลับไปใน Conversation document
+- สร้าง `DailyReport` document รวม: groupCount, jobCount, totalMessages, employeeBreakdown[], issueCategorySummary[]
+- Export `getRunState()` function สำหรับ monitoring in-memory progress
+
+**DailyReport document:**
+```typescript
+{
+  date, groupCount, jobCount, totalMessages,
+  customerMessages, employeeMessages,
+  employeeBreakdown[],      // per-employee message counts
+  issueCategorySummary[],   // { category, count } aggregation
+  status,                   // 'pending' | 'complete' | 'failed'
+  processedGroups, totalGroups,
+  aiProvider, aiModel, generatedAt
+}
+```
 
 ### AI Provider Routing (AiRouter + UniversalAdapter)
 AI config เก็บใน MongoDB `SystemConfig` singleton (ไม่ใช่ env vars แล้ว) จัดการผ่านหน้า Settings
@@ -158,51 +195,70 @@ AI config เก็บใน MongoDB `SystemConfig` singleton (ไม่ใช�
 import { aiRouter } from '../services/ai/AiRouter';
 
 const { result, providerName, modelName } = await aiRouter.callWithFailover(
-  'issueAnalysis',              // AiTaskName
-  async (adapter) => adapter.analyzeIssues(params)
+  'issueAnalysis',              // AiTaskName (ปัจจุบันมีเพียง task นี้)
+  async (adapter) => adapter.analyzeDailyConversations(params)
 );
 ```
 
-**Task names:** `groupSummary` | `staffKpi` | `issueAnalysis` | `analyzeResolution`
-
-**Failover logic:** ลอง (provider, model) candidates ตามลำดับ priority จาก `SystemConfig.ai.providerGroups`
+**Failover logic:** ลอง (provider, model) candidates ตามลำดับ priority จาก `SystemConfig.ai.tasks[taskName].groupId`
 - Retryable errors: HTTP 429, 402, 401, 502, 503, 504, และ 400 ที่ body มี "model"/"not found"
 - Non-retryable errors: throw ทันที (ไม่ลอง next candidate)
 
 **UniversalAdapter** รองรับ 3 auth types: `bearer`, `x-api-key`, `query-param`
 และ handle Anthropic native format แยกจาก OpenAI-compatible standard
+- Method หลัก: `analyzeDailyConversations()` รับ conversations batch, คืน `{ conversationId, category, summary }[]`
 
 **Known providers** (12 ตัว): OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral, Groq, MiniMax, Kimi, OpenRouter, Z.ai, Kilo, SML Router
+- `knownProviders.ts` มีทั้งใน backend (`services/ai/`) และ frontend (`lib/`) — content เหมือนกัน
 
 **ConfigService**: 60s in-memory TTL cache, auto-migrates old flat config formats (env-var era, tier-based era)
 
-### AI Evaluation (ทุกวัน 23:00)
-- ประเมินผลวันก่อนหน้า (เริ่ม 23:00 คืนวันนั้น)
-- สร้าง `DailySummary` ระดับกลุ่ม (sentiment, top issues)
-- สร้าง `KpiRecord` ต่อพนักงานต่อกลุ่ม (qualityScore 1-10, strengths, improvements)
-- ใช้ `aiRouter.callWithFailover('staffKpi', ...)` และ `aiRouter.callWithFailover('groupSummary', ...)`
+### AI Daily Analysis Prompt
+- Prompt ไฟล์: `jobs/prompts/dailyAnalysis.ts`
+- Input: `groupName`, `date`, `conversations[]`, `masterCategories[]` (hints จาก IssueCategoryMaster)
+- Output: JSON array `[{ conversationId, category, summary }]`
+- ใช้ Thai language, ให้ AI ใช้ master categories ถ้าเหมาะสม หรือสร้างใหม่
+- ไม่มี KPI qualityScore, strengths, improvements อีกต่อไป
 
-### Customer Issue Analysis (IssueAnalysisJob — ทุกวัน 23:30)
-- ทำงานหลัง DailyEvaluationJob เสร็จ
-- ดึง conversation transcript + IssueReport 7 วันก่อนหน้า ให้ AI categorize ปัญหา
-- AI prompt ใช้ `IssueCategoryMaster` ที่ active เป็น category hint
-- สร้าง `IssueReport` ต่อกลุ่มต่อวัน ประกอบด้วย:
-  - `issueCategories[]` — {category, count, percentage, examples[], trend: up/down/stable/new}
-  - `recurringIssues[]` — ปัญหาซ้ำจากสัปดาห์ก่อน
-  - `emergingIssues[]` — ปัญหาใหม่ที่เพิ่งปรากฏ
-  - `rootCauseInsight` — AI วิเคราะห์สาเหตุ
-  - `recommendedActions[]` — AI แนะนำแนวทางแก้ไข
+### Admin Auth System
+- **Two-tier auth**: API Key (ทุก route) + JWT (admin management routes)
+- **AdminUser model**: `username`, `passwordHash` (bcrypt), `isSuperAdmin`, `isActive`, `groupId`, `additionalPermissions`
+- **Default seed**: `superadmin` / `superadmin` สร้างอัตโนมัติถ้ายังไม่มี superadmin ใน DB
+- **PermissionKey** (11 keys): `dashboard`, `monitor`, `groups`, `oas`, `employees`, `summaries`, `issue-categories`, `conversations`, `settings`, `users`, `permission-groups`
+
+**Middleware pattern:**
+```typescript
+// ใช้ requirePermission แทน requireSuperAdmin สำหรับ routes ที่ non-superadmin ควรเข้าได้
+import { requirePermission } from '../middleware/jwtAuth';
+router.use(requirePermission('users')); // allow superadmin OR user with 'users' permission
+```
+
+**Login flow:**
+```
+POST /api/proxy/auth/login
+  → proxy forwards (no API key) → backend bcrypt.compare
+  → proxy sets httpOnly cookie `auth-token` (JWT) + readable cookie `user-info` (JSON)
+  → browser never sees JWT directly
+```
+
+**Frontend middleware** (`middleware.ts`):
+- Reads `auth-token` cookie → verify JWT via `jose`
+- Superadmin bypasses all checks; others checked against `ROUTE_PERMISSIONS` map
+- Requires `JWT_SECRET` env var (must match backend)
+
+**Sidebar cookie pattern** — อ่าน `user-info` cookie ใน `useEffect` เท่านั้น (ไม่อ่านตอน render เพื่อป้องกัน hydration error):
+```typescript
+const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+useEffect(() => { setUserInfo(getUserInfo()); }, []);
+```
+
+**Proxy JWT forwarding** — `admin/` paths: proxy อ่าน `auth-token` cookie แล้วใส่ `Authorization: Bearer` ก่อน forward ไป backend
 
 ### Issue Category Master
-- `IssueCategoryMaster` — หมวดหมู่ปัญหาที่ user จัดการเองผ่าน admin UI
+- `IssueCategoryMaster` — หมวดหมู่ปัญหาที่ user จัดการเองผ่าน admin UI (`/issue-categories`)
 - Auto-seeds 10 default Thai categories เมื่อ endpoint ถูกเรียกครั้งแรก
 - Soft delete (marks `isActive: false`) ไม่ลบจริง
 - AI prompts ดึง active categories มาเป็น hint ก่อน categorize
-
-### Employee Leaderboard + Trend
-- Leaderboard: composite score = qualityScore 50% + firstResponseRate 30% + conversationsHandled 20%
-- Trend: weekly average ย้อนหลัง N สัปดาห์ (default 4)
-- ทั้งคู่คำนวณจาก KpiRecord ที่มีอยู่แล้ว ไม่มี model ใหม่
 
 ### Frontend API Proxy
 - ทุก request จาก browser ส่งผ่าน `/api/proxy/[...path]` (Next.js Route Handler)
@@ -215,27 +271,23 @@ const { result, providerName, modelName } = await aiRouter.callWithFailover(
 ## API Endpoints หลัก
 | Endpoint | คำอธิบาย |
 |----------|----------|
-| `GET /api/v1/kpi` | KpiRecord ต่อพนักงานต่อวัน |
-| `GET /api/v1/kpi/leaderboard` | rank พนักงาน (composite score) |
-| `GET /api/v1/kpi/trend` | weekly trend ต่อพนักงาน |
-| `GET/POST /api/v1/summaries` | DailySummary + manual trigger |
-| `GET/POST /api/v1/issue-reports` | IssueReport + trend + manual trigger |
+| `GET /api/v1/daily-report` | DailyReport summary สำหรับวันที่ระบุ |
+| `GET /api/v1/daily-report/jobs` | paginated list conversations พร้อม filter (groupId, category, employeeId) |
+| `GET /api/v1/daily-report/filter-options` | dropdown data (groups, categories, employees) สำหรับวันที่ระบุ |
+| `GET /api/v1/daily-report/job-status` | in-memory run state ของ DailyAnalysisJob |
+| `POST /api/v1/daily-report/trigger` | trigger DailyAnalysisJob สำหรับวันที่ระบุ (query: `date`, `force`) |
 | `GET/POST/PUT/DELETE /api/v1/issue-categories` | จัดการ IssueCategoryMaster |
 | `GET/PUT /api/v1/config` | SystemConfig (AI providers, jobs toggle) |
 | `POST /api/v1/config/test-ai` | ทดสอบ AI provider connection |
 | `POST /api/v1/config/list-models` | ดึง model list จาก provider API |
-
----
-
-## KPI Metrics ที่วัด
-| Metric | คำอธิบาย |
-|--------|----------|
-| `conversationsHandled` | จำนวน conversation ที่พนักงานมีส่วนร่วม |
-| `messagesSent` | จำนวน message ที่ส่ง |
-| `avgFirstResponseMs` | เวลาเฉลี่ยในการตอบครั้งแรก |
-| `avgResponseMs` | เวลาเฉลี่ยในการตอบโดยรวม |
-| `firstResponseRate` | % ของการตอบที่ทำได้ภายใน 5 นาที |
-| `qualityScore` | คะแนนคุณภาพจาก AI (1-10) |
+| `GET /api/v1/conversations` | ประวัติ conversation (ใช้ใน monitor + history page) |
+| `PUT /api/v1/conversations/:id/response-status` | override responseStatusOverride ใน Monitor |
+| `POST /api/v1/auth/login` | login → คืน JWT token (public, ไม่ต้อง API key) |
+| `GET/POST/PUT/DELETE /api/v1/admin/users` | จัดการ AdminUser (API key + JWT + `users` permission) |
+| `POST /api/v1/admin/users/:id/password` | force reset รหัสผ่าน AdminUser |
+| `GET /api/v1/admin/users/:id/effective-permissions` | คำนวณ effective permissions รวม group + additionalPermissions |
+| `GET/POST/PUT/DELETE /api/v1/admin/permission-groups` | จัดการ PermissionGroup (API key + JWT + `permission-groups` permission) |
+| `GET /api/v1/admin/permission-groups/all-keys` | ดึง list ของ PermissionKey ทั้งหมด |
 
 ---
 
@@ -245,6 +297,7 @@ const { result, providerName, modelName } = await aiRouter.callWithFailover(
 ```
 MONGODB_URI=            # MongoDB connection string
 API_KEY=                # API key สำหรับ REST API (ใช้ใน X-API-Key header)
+JWT_SECRET=             # REQUIRED — secret สำหรับ sign JWT token (server crash ถ้าไม่มี)
 CONVERSATION_GAP_HOURS= # ชั่วโมงก่อนปิด conversation (default: 4)
 ```
 
@@ -254,8 +307,10 @@ CONVERSATION_GAP_HOURS= # ชั่วโมงก่อนปิด conversatio
 
 ### Frontend (`line-kpi-admin/.env.local`)
 ```
-NEXT_PUBLIC_API_URL=    # URL ของ backend API
+NEXT_PUBLIC_API_URL=    # URL ของ backend API (ใช้ใน lib/api.ts ฝั่ง client)
+BACKEND_URL=            # URL ที่ proxy route ใช้ forward ไป backend (default: http://localhost:3000)
 API_KEY=                # ใช้ใน proxy route (ไม่ expose ไป client)
+JWT_SECRET=             # ต้องตรงกับ backend — ใช้ใน middleware.ts (jose) verify token
 ```
 
 ---

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/Sidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 const inter = Inter({
@@ -24,12 +23,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th" className={`${inter.variable} ${manrope.variable}`} suppressHydrationWarning>
-      <body className="flex h-screen overflow-hidden antialiased">
+      <body className="antialiased">
         <ThemeProvider>
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto min-h-0">
-            {children}
-          </main>
+          {children}
         </ThemeProvider>
       </body>
     </html>

@@ -8,6 +8,7 @@ import { webhookRouter } from './webhook/router';
 import { apiRouter } from './api/router';
 import { startScheduler } from './jobs/scheduler';
 import { config } from './config';
+import { seedSuperAdmin } from './models/AdminUser';
 
 const app = express();
 
@@ -50,6 +51,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
+
+  // Seed default superadmin user if not exists
+  await seedSuperAdmin();
 
   // Warm up all caches before accepting traffic
   await Promise.all([

@@ -20,6 +20,56 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 const P = '/api/proxy';
 
+// ---- Auth ----
+export const authApi = {
+  login: (body: { username: string; password: string }) =>
+    apiFetch<{ user: import('@/types/api').UserInfo }>(`${P}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  logout: () =>
+    apiFetch<{ ok: boolean }>(`${P}/auth/logout`, { method: 'POST' }),
+  me: () =>
+    apiFetch<import('@/types/api').UserInfo>(`${P}/auth/me`),
+};
+
+// ---- Admin Users ----
+export const adminUsersApi = {
+  list: () => apiFetch<import('@/types/api').AdminUser[]>(`${P}/admin/users`),
+  create: (body: {
+    username: string;
+    password: string;
+    displayName: string;
+    groupId?: string;
+    additionalPermissions?: import('@/types/api').PermissionKey[];
+  }) => apiFetch<import('@/types/api').AdminUser>(`${P}/admin/users`, { method: 'POST', body: JSON.stringify(body) }),
+  get: (id: string) => apiFetch<import('@/types/api').AdminUser>(`${P}/admin/users/${id}`),
+  update: (id: string, body: Partial<{
+    displayName: string;
+    groupId: string | null;
+    additionalPermissions: import('@/types/api').PermissionKey[];
+    isActive: boolean;
+  }>) => apiFetch<import('@/types/api').AdminUser>(`${P}/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  changePassword: (id: string, newPassword: string) =>
+    apiFetch<{ ok: boolean }>(`${P}/admin/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    }),
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`${P}/admin/users/${id}`, { method: 'DELETE' }),
+};
+
+// ---- Admin Permission Groups ----
+export const permissionGroupsApi = {
+  list: () => apiFetch<import('@/types/api').PermissionGroup[]>(`${P}/admin/permission-groups`),
+  create: (body: { name: string; description?: string; permissions: import('@/types/api').PermissionKey[] }) =>
+    apiFetch<import('@/types/api').PermissionGroup>(`${P}/admin/permission-groups`, { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<{ name: string; description: string; permissions: import('@/types/api').PermissionKey[] }>) =>
+    apiFetch<import('@/types/api').PermissionGroup>(`${P}/admin/permission-groups/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`${P}/admin/permission-groups/${id}`, { method: 'DELETE' }),
+};
+
 // ---- Customer Groups ----
 export const groupsApi = {
   list: () => apiFetch<import('@/types/api').CustomerGroup[]>(`${P}/oas/groups/list`),

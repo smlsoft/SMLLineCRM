@@ -19,6 +19,9 @@ export const config = {
 
   apiKey: required('API_KEY'),
 
+  jwtSecret: required('JWT_SECRET'),
+  jwtExpiresIn: optional('JWT_EXPIRES_IN', '7d'),
+
   conversationGapHours: parseInt(optional('CONVERSATION_GAP_HOURS', '4'), 10),
 
   aiProvider: optional('AI_PROVIDER', 'openrouter') as 'openrouter' | 'kilo',
