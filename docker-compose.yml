@@ -1,6 +1,6 @@
 services:
   backend:
-    build: ./line-kpi-system
+    image: ghcr.io/smlsoft/smllinecrm-backend:latest
     ports:
       - "3102:3001"
     environment:
@@ -8,25 +8,23 @@ services:
       - NODE_ENV=production
       - MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>
       - API_KEY=your-api-key-here
+      - JWT_SECRET=your-jwt-secret-here
       - CONVERSATION_GAP_HOURS=4
       - TZ=Asia/Bangkok
-      - AI_PROVIDER=kilo                        # openrouter หรือ kilo
-      - KILO_API_KEY=your-kilo-api-key
-      - KILO_MODEL=your-kilo-model
-      - KILO_BASE_URL=your-kilo-base-url
       - CRON_CLOSE_CONVERSATIONS=0 22 * * *
       - CRON_DAILY_EVALUATION=0 23 * * *
       - EVALUATE_PREVIOUS_DAY=true
     restart: unless-stopped
 
   admin:
-    build: ./line-kpi-admin
+    image: ghcr.io/smlsoft/smllinecrm-admin:latest
     ports:
       - "3101:3000"
     environment:
       - NODE_ENV=production
       - BACKEND_URL=http://backend:3001
-      - API_KEY=your-api-key-here             # ต้องตรงกับ API_KEY ของ backend
+      - API_KEY=your-api-key-here        # ต้องตรงกับ API_KEY ของ backend
+      - JWT_SECRET=your-jwt-secret-here  # ต้องตรงกับ JWT_SECRET ของ backend
     depends_on:
       - backend
     restart: unless-stopped
