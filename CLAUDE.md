@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Checklist — เมื่อเพิ่มหน้า/Route ใหม่ใน Admin Dashboard
+
+**ทุกครั้งที่สร้างหน้าใหม่ใน `line-kpi-admin/(dashboard)/` ต้องทำสิ่งต่อไปนี้ด้วยเสมอ:**
+
+1. **เพิ่ม PermissionKey** ใน backend — ไฟล์ `line-kpi-system/src/api/middleware/jwtAuth.ts` (array `PERMISSION_KEYS`)
+2. **เพิ่ม route mapping** ใน `line-kpi-admin/src/middleware.ts` — object `ROUTE_PERMISSIONS` เพื่อให้ middleware ตรวจสิทธิ์ได้
+3. **เพิ่มเมนูใน Sidebar** — `line-kpi-admin/src/components/Sidebar.tsx` พร้อม permission check ให้ถูก key
+4. **เพิ่ม route ใน PermissionGroup routes** — `line-kpi-system/src/api/routes/permissionGroupRoutes.ts` ถ้า endpoint ต้องการสิทธิ์ใหม่
+5. **ตรวจสอบ UI จัดการสิทธิ์** — หน้า `/permission-groups` และ `/users` ในฝั่ง frontend ต้องแสดง permission key ใหม่ให้ admin กำหนดได้
+
+> ถ้าลืมทำข้อใดข้อหนึ่ง: หน้าใหม่จะ redirect กลับหน้า login หรือ superadmin เข้าได้คนเดียว
+
+---
+
 ## กฏความปลอดภัย — ห้ามส่งข้อมูลสำคัญขึ้น GitHub
 
 **ห้าม commit หรือ push ไฟล์ที่มีข้อมูลต่อไปนี้โดยเด็ดขาด:**
