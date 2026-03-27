@@ -509,11 +509,12 @@ function GroupMessagesModal({
                         : 'bg-surface-container text-on-surface rounded-tl-sm'
                     )}
                   >
-                    {msg.textContent ?? (
-                      <span className="italic text-on-surface/50 text-xs">
-                        [{msg.messageType}]
-                      </span>
-                    )}
+                    {msg.textContent
+                      ? msg.textContent
+                      : msg.messageType === 'image' && msg.mediaId?.data
+                        ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
+                        : <span className="italic text-on-surface/50 text-xs">[{msg.messageType}]</span>
+                    }
                   </div>
                   <span className="text-[9px] text-on-surface-variant/60 px-1">
                     {formatDateTime(msg.timestamp)}
@@ -607,7 +608,12 @@ function GroupConversationModal({
                 <div key={msg._id} className={cn('flex flex-col gap-0.5', isEmployee ? 'items-end' : 'items-start')}>
                   <span className="text-[10px] text-on-surface-variant px-1">{msg.senderDisplayName}</span>
                   <div className={cn('max-w-[80%] px-3 py-2 rounded-2xl text-sm', isEmployee ? 'bg-primary text-on-primary rounded-tr-sm' : 'bg-surface-container text-on-surface rounded-tl-sm')}>
-                    {msg.textContent ?? <span className="italic text-xs opacity-60">[{msg.messageType}]</span>}
+                    {msg.textContent
+                      ? msg.textContent
+                      : msg.messageType === 'image' && msg.mediaId?.data
+                        ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
+                        : <span className="italic text-xs opacity-60">[{msg.messageType}]</span>
+                    }
                   </div>
                   <span className="text-[9px] text-on-surface-variant/60 px-1">{formatDateTime(msg.timestamp)}</span>
                 </div>

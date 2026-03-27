@@ -88,6 +88,7 @@ export interface Message {
   employeeId?: { _id: string; name: string; employeeCode: string };
   messageType: string;
   textContent?: string;
+  mediaId?: { _id: string; data: string; mimeType: string };
   timestamp: string;
 }
 

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { Employee } from '../../models/Employee';
 import { masterIdCache } from '../../services/MasterIdCache';
+import { reclassifyEmployeeMessages } from '../../services/EmployeeReclassifier';
 
 const router = Router();
 
@@ -34,6 +36,10 @@ router.post('/', async (req: Request, res: Response) => {
 
   const emp = await Employee.create({ lineUserId, name, employeeCode, department, assignedGroupIds });
   await masterIdCache.refresh();
+  // Re-classify messages วันนี้ที่อาจถูกเก็บเป็น 'customer' ขณะที่ยังไม่มีพนักงานนี้ในระบบ
+  reclassifyEmployeeMessages(lineUserId, emp._id as Types.ObjectId).catch((err) =>
+    console.warn('[employeeRoutes] reclassify failed:', err)
+  );
   res.status(201).json(emp);
 });
 
@@ -42,6 +48,10 @@ router.put('/:id', async (req: Request, res: Response) => {
   const emp = await Employee.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
   if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
   await masterIdCache.refresh();
+  // Re-classify ในกรณีที่ cache ล้าหลัง หรือ lineUserId เพิ่งถูกแก้ไข
+  reclassifyEmployeeMessages(emp.lineUserId, emp._id as Types.ObjectId).catch((err) =>
+    console.warn('[employeeRoutes] reclassify failed:', err)
+  );
   res.json(emp);
 });
 

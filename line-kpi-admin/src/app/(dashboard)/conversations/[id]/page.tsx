@@ -283,9 +283,12 @@ export default function ConversationDetailPage() {
                       <div className="flex flex-col gap-1 items-end">
                         <span className="text-[10px] font-bold mr-1 text-primary">{displayName}</span>
                         <div className="bg-primary text-on-primary p-4 rounded-2xl rounded-br-none shadow-md shadow-primary/10 text-sm leading-relaxed">
-                          {msg.messageType === 'text' ? msg.textContent : (
-                            <span className="italic opacity-70">[{msg.messageType}]</span>
-                          )}
+                          {msg.messageType === 'text'
+                            ? msg.textContent
+                            : msg.messageType === 'image' && msg.mediaId?.data
+                              ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
+                              : <span className="italic opacity-70">[{msg.messageType}]</span>
+                          }
                         </div>
                         <span className="text-[10px] text-on-surface-variant/70 mt-1">
                           {formatDateTime(msg.timestamp)}
@@ -301,9 +304,12 @@ export default function ConversationDetailPage() {
                       <div className="flex flex-col gap-1">
                         <span className="text-[10px] font-bold ml-1 text-on-surface-variant">{displayName}</span>
                         <div className="bg-surface-container text-on-surface p-4 rounded-2xl rounded-bl-none shadow-sm text-sm leading-relaxed">
-                          {msg.messageType === 'text' ? msg.textContent : (
-                            <span className="italic text-on-surface-variant">[{msg.messageType}]</span>
-                          )}
+                          {msg.messageType === 'text'
+                            ? msg.textContent
+                            : msg.messageType === 'image' && msg.mediaId?.data
+                              ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
+                              : <span className="italic text-on-surface-variant">[{msg.messageType}]</span>
+                          }
                         </div>
                         <span className="text-[10px] text-on-surface-variant/70 text-right mt-1">
                           {formatDateTime(msg.timestamp)}

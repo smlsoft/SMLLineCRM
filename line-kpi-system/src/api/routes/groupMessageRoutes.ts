@@ -34,6 +34,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   const messages = await Message.find(filter)
     .populate('employeeId', 'name employeeCode')
+    .populate('mediaId', 'data mimeType')
     .sort({ timestamp: -1 }) // newest first for efficient pagination
     .limit(limit)
     .lean();
