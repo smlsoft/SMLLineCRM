@@ -71,9 +71,9 @@ export default function ConversationsLayout({ children }: { children: React.Reac
   };
 
   return (
-    <div className="flex h-full overflow-hidden p-6 gap-6">
+    <div className="flex h-full overflow-hidden p-3 md:p-6 gap-3 md:gap-6">
       {/* Column 1: Chat Groups (Queue) */}
-      <section className="w-80 flex flex-col gap-4">
+      <section className={`flex flex-col gap-4 w-full md:w-80 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex items-center justify-between">
           <h2 className="font-headline font-bold text-lg text-on-surface">บทสนทนา</h2>
           <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
@@ -176,7 +176,17 @@ export default function ConversationsLayout({ children }: { children: React.Reac
       </section>
 
       {/* Column 2: Chat Detail */}
-      <section className="flex-1 bg-surface-container-lowest rounded-3xl flex flex-col shadow-sm border border-surface-container-high/30 min-w-0">
+      <section className={`${selectedId ? 'flex' : 'hidden'} md:flex flex-1 bg-surface-container-lowest rounded-3xl flex-col shadow-sm border border-surface-container-high/30 min-w-0`}>
+        {/* Mobile back button */}
+        <div className="md:hidden flex items-center gap-2 px-4 py-3 border-b border-surface-container-high/30 flex-shrink-0">
+          <button
+            onClick={() => router.push('/conversations')}
+            className="flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            กลับ
+          </button>
+        </div>
         {children}
       </section>
     </div>

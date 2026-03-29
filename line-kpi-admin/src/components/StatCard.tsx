@@ -18,16 +18,16 @@ export function StatCard({ title, value, subtitle, icon: Icon, accent = 'primary
   };
 
   return (
-    <div className="bg-surface-container-lowest rounded-3xl p-5 border border-surface-container-high/30 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">{title}</span>
+    <div className="bg-surface-container-lowest rounded-3xl p-3 md:p-5 border border-surface-container-high/30 shadow-sm">
+      <div className="flex items-start justify-between mb-2 md:mb-3 gap-1">
+        <span className="text-[9px] md:text-[10px] font-bold text-on-surface-variant uppercase tracking-widest leading-tight">{title}</span>
         {Icon && (
-          <div className={cn('p-2 rounded-xl', accentMap[accent])}>
-            <Icon className="w-4 h-4" />
+          <div className={cn('p-1.5 md:p-2 rounded-xl flex-shrink-0', accentMap[accent])}>
+            <Icon className="w-3 h-3 md:w-4 md:h-4" />
           </div>
         )}
       </div>
-      <div className="text-2xl font-headline font-extrabold text-on-surface">{value}</div>
+      <div className="text-xl md:text-2xl font-headline font-extrabold text-on-surface">{value}</div>
       {subtitle && <p className="text-xs text-on-surface-variant mt-1">{subtitle}</p>}
     </div>
   );

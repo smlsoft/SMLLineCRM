@@ -37,7 +37,12 @@ function getUserInfo(): UserInfo | null {
   }
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -62,8 +67,23 @@ export function Sidebar() {
     }
   }
 
+  function handleNavClick() {
+    onClose?.();
+  }
+
   return (
-    <aside className="w-64 flex-shrink-0 bg-surface-container-low flex flex-col py-6 pl-4">
+    <aside
+      className={cn(
+        // Base styles
+        'w-64 flex-shrink-0 bg-surface-container-low flex flex-col py-6 pl-4',
+        // Mobile: fixed drawer that slides in/out
+        'fixed inset-y-0 left-0 z-30 transform transition-transform duration-300 ease-in-out',
+        // Mobile open/close
+        isOpen ? 'translate-x-0' : '-translate-x-full',
+        // Desktop: always visible, relative positioning
+        'md:relative md:translate-x-0 md:z-auto'
+      )}
+    >
       {/* Brand */}
       <div className="flex items-center gap-3 mb-10 pl-2">
         <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
@@ -83,6 +103,7 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={handleNavClick}
               className={cn(
                 'flex items-center gap-3 px-4 py-3 text-sm transition-all duration-200 ease-in-out group',
                 active

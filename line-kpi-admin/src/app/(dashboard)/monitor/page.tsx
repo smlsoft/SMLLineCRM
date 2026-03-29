@@ -141,7 +141,7 @@ export default function MonitorPage() {
   });
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -191,14 +191,14 @@ export default function MonitorPage() {
       {activeTab === 'groups' && (
         <>
           {!loading && (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 md:gap-4">
               <StatCard title="กลุ่มด่วน" value={urgentCount} icon={Activity} accent="error" />
               <StatCard title="กลุ่มรอตอบ" value={warningCount} icon={Clock} accent="yellow" />
               <StatCard title="กลุ่มปกติ" value={normalCount} icon={CheckCircle2} accent="green" />
             </div>
           )}
           {loading ? (
-            <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-28 bg-surface-container rounded-3xl animate-pulse" />
               ))}
@@ -206,7 +206,7 @@ export default function MonitorPage() {
           ) : groups.length === 0 ? (
             <div className="text-center py-16 text-on-surface-variant">ไม่มีกลุ่มที่ใช้งาน</div>
           ) : (
-            <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {groups.map((g) => (
                 <MonitorGroupCard key={g._id} group={g} onOpenModal={setGroupConvModal} />
               ))}
@@ -278,7 +278,7 @@ export default function MonitorPage() {
           )}
 
           {empLoading ? (
-            <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="h-24 bg-surface-container rounded-3xl animate-pulse" />
               ))}
@@ -330,7 +330,7 @@ function EmployeeDepartmentGroups({
   // If filtered to one dept, skip department headers
   if (filterDept) {
     return (
-      <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {employees.map((emp) => (
           <EmployeeStatusCard key={emp._id} employee={emp} onGroupClick={onGroupClick} />
         ))}
@@ -351,7 +351,7 @@ function EmployeeDepartmentGroups({
           <h2 className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3">
             {dept} · {emps.length} คน
           </h2>
-          <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {emps.map((emp) => (
               <EmployeeStatusCard key={emp._id} employee={emp} onGroupClick={onGroupClick} />
             ))}
@@ -695,7 +695,7 @@ function MonitorGroupCard({
         cfg.borderCls
       )}
     >
-      <div className="flex items-start justify-between gap-4 p-5">
+      <div className="flex items-start justify-between gap-3 p-4 md:p-5">
         <div className="space-y-1.5 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span
