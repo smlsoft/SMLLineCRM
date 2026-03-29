@@ -22,7 +22,7 @@ router.get('/', async (_req: Request, res: Response) => {
     // Stage 1: All active customer groups
     { $match: { isActive: true } },
 
-    // Stage 2: Join open conversations for today per group
+    // Stage 2: Join open conversations — today OR older ones still awaiting customer response
     {
       $lookup: {
         from: 'conversations',
@@ -30,9 +30,29 @@ router.get('/', async (_req: Request, res: Response) => {
         pipeline: [
           {
             $match: {
-              $expr: { $eq: ['$customerGroupId', '$$gid'] },
+              $expr: {
+                $and: [
+                  { $eq: ['$customerGroupId', '$$gid'] },
+                  {
+                    $or: [
+                      // บทสนทนาวันนี้ (ทุกสถานะ)
+                      { $and: [{ $gte: ['$date', todayStart] }, { $lt: ['$date', todayEnd] }] },
+                      // บทสนทนาเก่าที่ลูกค้าทักมาแต่ยังไม่มีพนักงานตอบ
+                      {
+                        $and: [
+                          { $lt: ['$date', todayStart] },
+                          { $gt: [
+                            { $ifNull: ['$lastCustomerMessageAt', EPOCH] },
+                            { $ifNull: ['$lastEmployeeMessageAt', EPOCH] },
+                          ]},
+                          { $ne: ['$responseStatusOverride', 'normal'] },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
               status: 'open',
-              date: { $gte: todayStart, $lt: todayEnd },
             },
           },
         ],
