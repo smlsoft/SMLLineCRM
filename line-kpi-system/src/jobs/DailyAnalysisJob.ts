@@ -44,8 +44,8 @@ export class DailyAnalysisJob {
     }
 
     const date = targetDate ?? this.yesterday();
-    const dateStart = new Date(`${date}T00:00:00.000Z`);
-    const dateEnd   = new Date(`${date}T23:59:59.999Z`);
+    const dateStart = new Date(`${date}T00:00:00.000+07:00`);
+    const dateEnd   = new Date(`${date}T23:59:59.999+07:00`);
 
     runState = {
       date,
@@ -198,7 +198,7 @@ export class DailyAnalysisJob {
   private yesterday(): string {
     const d = new Date();
     d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
   }
 
   private async processGroup(opts: {

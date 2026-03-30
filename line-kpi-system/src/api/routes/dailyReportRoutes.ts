@@ -11,9 +11,9 @@ const job = new DailyAnalysisJob();
 // GET /api/v1/daily-report?date=YYYY-MM-DD
 // Returns DailyReport summary for the given date
 router.get('/', async (req: Request, res: Response) => {
-  const dateStr = (req.query['date'] as string) ?? new Date().toISOString().slice(0, 10);
-  const dateStart = new Date(`${dateStr}T00:00:00.000Z`);
-  const dateEnd   = new Date(`${dateStr}T23:59:59.999Z`);
+  const dateStr = (req.query['date'] as string) ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const dateStart = new Date(`${dateStr}T00:00:00.000+07:00`);
+  const dateEnd   = new Date(`${dateStr}T23:59:59.999+07:00`);
 
   const report = await DailyReport.findOne({ date: { $gte: dateStart, $lte: dateEnd } }).lean();
   res.json(report ?? null);
@@ -32,9 +32,9 @@ router.get('/jobs', async (req: Request, res: Response) => {
     limit = '50',
   } = req.query as Record<string, string>;
 
-  const dateStr = date ?? new Date().toISOString().slice(0, 10);
-  const dateStart = new Date(`${dateStr}T00:00:00.000Z`);
-  const dateEnd   = new Date(`${dateStr}T23:59:59.999Z`);
+  const dateStr = date ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const dateStart = new Date(`${dateStr}T00:00:00.000+07:00`);
+  const dateEnd   = new Date(`${dateStr}T23:59:59.999+07:00`);
 
   const filter: Record<string, unknown> = {
     date: { $gte: dateStart, $lte: dateEnd },
@@ -73,9 +73,9 @@ router.get('/jobs', async (req: Request, res: Response) => {
 // GET /api/v1/daily-report/filter-options?date=YYYY-MM-DD
 // Returns distinct groups, categories, employees for filter dropdowns
 router.get('/filter-options', async (req: Request, res: Response) => {
-  const dateStr = (req.query['date'] as string) ?? new Date().toISOString().slice(0, 10);
-  const dateStart = new Date(`${dateStr}T00:00:00.000Z`);
-  const dateEnd   = new Date(`${dateStr}T23:59:59.999Z`);
+  const dateStr = (req.query['date'] as string) ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const dateStart = new Date(`${dateStr}T00:00:00.000+07:00`);
+  const dateEnd   = new Date(`${dateStr}T23:59:59.999+07:00`);
 
   const dateFilter = { date: { $gte: dateStart, $lte: dateEnd } };
 
