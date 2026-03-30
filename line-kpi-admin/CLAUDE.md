@@ -1,4 +1,6 @@
-# CLAUDE.md — Frontend Developer Mode
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## บทบาท
 คุณคือ **Frontend Developer** ของโปรเจกต์นี้
@@ -40,9 +42,10 @@ src/
 │   ├── Sidebar.tsx
 │   └── ui/                 shadcn/ui components
 ├── lib/
-│   ├── api.ts              centralized API client
-│   └── knownProviders.ts
-└── types/api.ts
+│   ├── api.ts              centralized API client (namespaced exports)
+│   ├── utils.ts            utility functions
+│   └── knownProviders.ts   AI provider display metadata
+└── types/api.ts            TypeScript interfaces (single source of truth)
 ```
 
 ---
@@ -61,11 +64,30 @@ src/
 
 ## Patterns สำคัญ
 
-### API calls — ผ่าน proxy เสมอ
+### API calls — ใช้ lib/api.ts เสมอ
+
+`lib/api.ts` มี namespaces พร้อมใช้:
+`authApi`, `adminUsersApi`, `permissionGroupsApi`, `groupsApi`, `oasApi`, `employeesApi`, `issueCategoriesApi`, `conversationsApi`, `messagesApi`, `monitorApi`, `dailyReportApi`, `configApi`
+
+ถ้า endpoint ยังไม่มีใน `lib/api.ts` ให้ใช้ `apiFetch` helper หรือ `fetch('/api/proxy/...')`:
 ```typescript
 // ทุก request ต้องผ่าน /api/proxy/ (ซ่อน API key + inject JWT)
 const res = await fetch('/api/proxy/your-endpoint');
-// หรือใช้ lib/api.ts ที่มีอยู่แล้ว
+```
+
+**Proxy routing:**
+- `/api/proxy/*` (non-admin) → proxy เพิ่ม `X-API-Key` header ให้อัตโนมัติ
+- `/api/proxy/admin/*` → proxy เพิ่ม `Authorization: Bearer {jwt}` จาก cookie ให้อัตโนมัติ
+
+### Page pattern — ทุกหน้าใน (dashboard)/ ใช้ 'use client'
+
+```typescript
+'use client';
+// data fetching ด้วย useState + useEffect เสมอ
+const [data, setData] = useState<Type[]>([]);
+useEffect(() => {
+  Promise.all([api1(), api2()]).then(([d1, d2]) => { setData(d1); });
+}, [deps]);
 ```
 
 ### Sidebar cookie pattern — อ่านใน useEffect เท่านั้น
@@ -75,15 +97,6 @@ const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
 useEffect(() => { setUserInfo(getUserInfo()); }, []);
 ```
 
-### เพิ่ม route ใน middleware.ts
-```typescript
-// src/middleware.ts — object ROUTE_PERMISSIONS
-const ROUTE_PERMISSIONS: Record<string, string> = {
-  '/your-new-page': 'your-permission-key',
-  // ...
-};
-```
-
 ### Permission check ใน Sidebar
 ```typescript
 // แสดงเมนูเฉพาะ user ที่มี permission หรือเป็น superadmin
@@ -91,6 +104,28 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   <SidebarLink href="/your-new-page">...</SidebarLink>
 )}
 ```
+
+---
+
+## Utilities — lib/utils.ts
+
+| Function | ใช้สำหรับ |
+|---|---|
+| `cn(...classes)` | Tailwind class merging (clsx + tailwind-merge) |
+| `formatMs(ms)` | milliseconds → Thai time string (วิ/นาที/ชม.) |
+| `formatDate(date)` | วันที่ Thai locale (Asia/Bangkok) |
+| `formatDateTime(date)` | วันที่ + เวลา |
+| `todayISO()` | วันนี้เป็น ISO date string |
+| `maskLineId(id)` | ย่อ LINE ID ด้วย ellipsis |
+
+---
+
+## TypeScript Types — types/api.ts
+
+ไฟล์นี้คือ single source of truth สำหรับ interface ทั้งหมด รวมถึง:
+- `PermissionKey` — string union ของ permission keys ที่ valid ทั้งหมด
+- `UserInfo`, `AdminUser`, `PermissionGroup`
+- Data models: `CustomerGroup`, `LineOa`, `Employee`, `Conversation`, `Message`, `MonitorGroup`, `DailyReport`, `SystemConfig`
 
 ---
 

@@ -795,7 +795,7 @@ function ConversationRow({
 
 function EmployeeChips({ employees }: { employees: MonitorEmployee[] }) {
   if (employees.length === 0) {
-    return <span className="text-[10px] text-on-surface-variant">ไม่มีพนักงาน</span>;
+    return null;
   }
   return (
     <div className="flex flex-wrap justify-end gap-1">

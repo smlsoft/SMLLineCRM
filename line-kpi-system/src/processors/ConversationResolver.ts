@@ -38,7 +38,12 @@ export class ConversationResolver {
       return existing;
     }
 
-    // No active thread — create a new conversation
+    // No active thread — close any lingering open conversations in this group, then open a new one
+    await Conversation.updateMany(
+      { lineGroupId, status: 'open' },
+      { $set: { status: 'closed' } }
+    );
+
     const date = dayFloor(timestamp);
 
     const conv = await Conversation.create({

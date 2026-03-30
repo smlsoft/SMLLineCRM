@@ -1,63 +1,81 @@
-# CLAUDE.md — Backend Developer Mode
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## บทบาท
 คุณคือ **Backend Developer** ของโปรเจกต์นี้
 รับ task จาก PM (ไฟล์ `task.md` หรือ `plans/`) แล้วลงมือเขียนโค้ดได้เลย
-รู้ codebase backend ลึก ทำงานในขอบเขต `line-kpi-system/` เป็นหลัก
+ทำงานในขอบเขต `line-kpi-system/` เป็นหลัก
 
 ---
 
-## Context โปรเจกต์
+## Commands
 
-**SMLLineCRM** — ระบบติดตาม KPI พนักงาน CS บน LINE OA
-Backend รับ webhook จาก LINE → ประมวลผล → เก็บ MongoDB → expose REST API
-
-**Tech:** Node.js + TypeScript 5 + Express.js 4 + Mongoose 8 + node-cron
-
----
-
-## โครงสร้าง src/
-
-```
-src/
-├── webhook/            รับ webhook LINE + ตรวจ HMAC signature
-├── processors/         pipeline ประมวลผล message
-│   ├── MessageProcessor.ts      จำแนกผู้ส่ง (พนักงาน vs ลูกค้า)
-│   ├── ConversationResolver.ts  หา/สร้าง Conversation thread
-│   ├── ResponsePairer.ts        จับคู่ response กับ customer message
-│   └── MetricsUpdater.ts        คำนวณ avg/max response time
-├── services/
-│   ├── MasterIdCache.ts         cache lineUserId พนักงาน (O(1) lookup)
-│   ├── OaRegistry.ts            cache credentials ของแต่ละ OA
-│   ├── GroupRegistry.ts         cache mapping กลุ่ม LINE → OA
-│   ├── ConfigService.ts         MongoDB config singleton (60s TTL)
-│   └── ai/
-│       ├── AiRouter.ts          failover orchestrator
-│       ├── UniversalAdapter.ts  single adapter for 12+ providers
-│       └── knownProviders.ts    provider definitions
-├── jobs/               scheduled jobs (22:00, 23:00)
-│   └── prompts/        AI prompt templates
-├── models/             Mongoose schemas
-├── api/
-│   ├── middleware/
-│   │   ├── auth.ts     apiKeyAuth (X-API-Key)
-│   │   └── jwtAuth.ts  jwtAuth, requireSuperAdmin, requirePermission(key)
-│   └── routes/
-└── config/
+```bash
+npm run dev      # ts-node-dev hot reload (port 3000)
+npm run build    # compile TypeScript → dist/
+npm start        # run dist/app.js
+npm run lint     # eslint src --ext .ts
 ```
 
+ไม่มี automated tests ในโปรเจ็คนี้
+
 ---
 
-## Patterns สำคัญ
+## Architecture Overview
 
-### เพิ่ม API endpoint ใหม่
+**SMLLineCRM backend** — รับ webhook LINE → ประมวลผล → เก็บ MongoDB → expose REST API
+
+### Entry Point (`src/app.ts`)
+Express bootstrap ลำดับ:
+1. โหลด `.env`
+2. เชื่อม MongoDB + warm up caches
+3. เริ่ม scheduled jobs
+4. Listen port
+
+Routes หลัก:
+- `GET /health` — public, no auth
+- `POST /webhook/:channelId` — HMAC signature verified, ตอบ 200 ทันที แล้วประมวลผล async
+- `POST /api/v1/auth/login` — public (API key ไม่ต้องใช้)
+- `* /api/v1/*` — ต้องมี `X-API-Key` header ทุก route
+
+### Auth Middleware Stack (`src/api/router.ts`)
+```
+/api/v1/auth/*         → public (no middleware)
+/api/v1/*              → apiKeyAuth (X-API-Key หรือ Authorization: Bearer <api-key>)
+/api/v1/admin/users/*  → apiKeyAuth → jwtAuth → requirePermission(key)
+/api/v1/config/*       → apiKeyAuth → jwtAuth
+```
+
+`requirePermission(key)` ใน `jwtAuth.ts` — superadmin ผ่านทุก key, user ทั่วไปต้องมี key ใน `permissions[]`
+
+### Webhook Processing Pipeline (`src/processors/MessageProcessor.ts`)
+```
+LINE → /webhook/:channelId → verify HMAC → 200 OK (ทันที)
+  ↓ (async)
+MessageProcessor.process()
+  → masterIdCache.getEmployee(lineUserId)  // O(1) lookup
+  → lineProfileService.getDisplayName()    // cached
+  → ConversationResolver.resolve()         // หา/สร้าง thread ตาม gap hours
+  → ResponsePairer.pair()                  // จับคู่ reply ↔ customer msg
+  → Message.create()                       // idempotent ด้วย unique lineMessageId
+  → MetricsUpdater.update()               // อัพเดท avg/max response time
+  → fetchAndStoreImage()                  // fire-and-forget ถ้า type = image
+```
+
+---
+
+## Core Patterns
+
+### เพิ่ม API Endpoint ใหม่
 ```typescript
-// 1. สร้าง route file ใน api/routes/
+// 1. สร้าง route file ใน src/api/routes/yourRoutes.ts
 import { requirePermission } from '../middleware/jwtAuth';
-router.use(requirePermission('your-key')); // superadmin OR user ที่มี permission
+router.use(requirePermission('your-permission-key'));
 
-// 2. เพิ่ม PermissionKey ใน jwtAuth.ts → PERMISSION_KEYS array
-// 3. Register ใน api/router.ts
+// 2. เพิ่ม key ใน PERMISSION_KEYS array → src/api/middleware/jwtAuth.ts
+// 3. Register ใน src/api/router.ts
+// 4. (ถ้ามี frontend) แจ้ง Frontend Dev อัพเดท middleware.ts และ Sidebar
 ```
 
 ### ใช้ AI (AiRouter)
@@ -65,53 +83,84 @@ router.use(requirePermission('your-key')); // superadmin OR user ที่มี
 import { aiRouter } from '../services/ai/AiRouter';
 
 const { result, providerName, modelName } = await aiRouter.callWithFailover(
-  'issueAnalysis',
+  'taskName',
   async (adapter) => adapter.analyzeDailyConversations(params)
 );
+// retry อัตโนมัติถ้า provider ตอบ 429/402/401/5xx
 ```
 
+AI provider configs เก็บใน MongoDB (`SystemConfig`) — ไม่ใช้ env vars
+
 ### เพิ่ม Mongoose Model
-- ดู pattern จาก `models/Conversation.ts` หรือ `models/AdminUser.ts`
-- ใส่ index ที่จำเป็น (โดยเฉพาะ unique fields)
+- ดู pattern จาก `models/Conversation.ts` (compound indexes) หรือ `models/AdminUser.ts` (unique field)
+- ทุก model ที่ใช้บน webhook hot path ต้องมี index บน fields ที่ query บ่อย
+
+### Config แบบ Dynamic (ConfigService)
+```typescript
+import { configService } from '../services/ConfigService';
+const config = await configService.get(); // cached 60s, อ่านจาก MongoDB singleton
+```
 
 ---
 
-## Checklist เมื่อเพิ่ม Permission ใหม่
+## Cache Services
 
-1. เพิ่ม key ใน `src/api/middleware/jwtAuth.ts` → array `PERMISSION_KEYS`
-2. เพิ่ม route ใน `src/api/routes/permissionGroupRoutes.ts` ถ้า endpoint ต้องการสิทธิ์ใหม่
-3. แจ้ง Frontend Dev ให้อัพเดท middleware.ts และ Sidebar
+| Service | ข้อมูล | Refresh เมื่อ |
+|---------|--------|--------------|
+| `MasterIdCache` | lineUserId → Employee | เพิ่ม/แก้/ลบ Employee → เรียก `.initialize()` |
+| `OaRegistry` | channelId → LINE OA credentials | แก้ LINE OA settings → restart หรือ `.reload()` |
+| `GroupRegistry` | lineGroupId → OA | แก้ group mapping → restart หรือ `.reload()` |
+| `ConfigService` | SystemConfig document | อัพเดทอัตโนมัติทุก 60 วินาที |
+
+Caches warm up ใน `app.ts` ก่อน listen — ถ้า warmup fail server จะ crash intentionally
+
+---
+
+## Scheduled Jobs (`src/jobs/`)
+
+**DailyAnalysisJob** (`scheduler.ts` → cron `0 23 * * *`):
+1. Query conversations ของวันก่อน
+2. เรียก AI categorize issues ทีละ group
+3. บันทึก `DailyReport` document
+4. Track progress ด้วย `getRunState()` → `{ status, totalGroups, processedGroups }`
+
+เพิ่ม job ใหม่: สร้าง class ใน `src/jobs/` → register ใน `src/jobs/scheduler.ts`
 
 ---
 
 ## Environment Variables
 
+**Required (server crash ถ้าไม่มี):**
 ```
-MONGODB_URI=            # MongoDB connection string
-API_KEY=                # X-API-Key header
-JWT_SECRET=             # REQUIRED — server crash ถ้าไม่มี
-CONVERSATION_GAP_HOURS= # default: 4
+MONGODB_URI=       # MongoDB connection string
+API_KEY=           # X-API-Key for all API requests
+JWT_SECRET=        # JWT signing key
 ```
 
-> AI provider config เก็บใน MongoDB ผ่านหน้า Settings — ไม่ใช้ env vars แล้ว
+**Optional:**
+```
+PORT=3000
+CONVERSATION_GAP_HOURS=4       # ช่องว่าง (ชั่วโมง) ที่ถือว่าเป็น conversation ใหม่
+CRON_DAILY_ANALYSIS=0 23 * * * # cron schedule สำหรับ DailyAnalysisJob
+EVALUATE_PREVIOUS_DAY=true
+```
+
+---
+
+## Key Files (non-obvious)
+
+| File | หน้าที่ |
+|------|--------|
+| `src/api/middleware/jwtAuth.ts` | PERMISSION_KEYS array — ต้องเพิ่มที่นี่ทุกครั้งที่มี permission ใหม่ |
+| `src/api/routes/permissionGroupRoutes.ts` | route สำหรับ manage roles — เพิ่ม route ใหม่ถ้ามี permission ใหม่ |
+| `src/services/ConfigService.ts` | MongoDB config singleton + migration logic |
+| `src/services/ai/knownProviders.ts` | predefined AI provider configs (base URL, auth type) |
+| `src/jobs/prompts/` | AI prompt templates สำหรับ daily analysis |
 
 ---
 
 ## ไฟล์ห้ามแตะ
 
-- `.env` — secrets (ห้าม commit เด็ดขาด)
-- `dist/` — build output (สร้างใหม่ด้วย `npm run build`)
+- `.env` — secrets (ห้าม commit)
+- `dist/` — build output
 - `node_modules/`
-
----
-
-## คำสั่ง
-
-```bash
-npm run dev      # ts-node-dev, hot reload (port 3000)
-npm run build    # compile TypeScript → dist/
-npm start        # run dist/
-npm run lint
-```
-
-> ไม่มี automated tests ในโปรเจ็คนี้

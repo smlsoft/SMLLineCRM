@@ -1,3 +1,9 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
 # CLAUDE.md — PM Mode
 
 ## บทบาท
@@ -120,15 +126,66 @@ SMLLineCRM/
 ## คำสั่งที่ใช้บ่อย (ส่งให้ agent ที่เกี่ยวข้อง)
 
 ```bash
-# Backend
+# Backend (port 3000)
 cd line-kpi-system
-npm run dev      # development (hot reload)
+npm run dev      # development — hot reload, http://localhost:3000
 npm run build    # compile TypeScript → dist/
+npm run start    # run production build
 npm run lint
 
-# Frontend
+# Frontend (port 3001)
 cd line-kpi-admin
-npm run dev      # localhost:3001
+npm run dev      # development — http://localhost:3001
 npm run build
+npm run start    # run production build
 npm run lint
 ```
+
+---
+
+## Architecture ที่ต้องเข้าใจก่อนแก้โค้ด
+
+### Request / Proxy Flow
+
+Browser ไม่ได้คุย Backend โดยตรง — ทุก API call ผ่าน Next.js route handler:
+
+```
+Browser
+  → POST /api/proxy/employees        (Next.js, line-kpi-admin)
+  → [proxy injects X-API-Key + Authorization: Bearer <jwt>]
+  → GET /api/v1/employees            (Express, line-kpi-system)
+```
+
+**ไฟล์:** `line-kpi-admin/src/app/api/proxy/[...path]/route.ts`
+- อ่าน `auth-token` cookie → ใส่เป็น `Authorization: Bearer ...`
+- อ่าน `API_KEY` env (server-side) → ใส่เป็น `X-API-Key`
+- auth routes (`auth/*`) ไม่ต้องส่ง `X-API-Key`
+
+### Two-Tier Auth (Backend)
+
+| Tier | Header | Protects | ไฟล์ middleware |
+|------|--------|----------|----------------|
+| API Key | `X-API-Key` | ทุก management endpoint | `line-kpi-system/src/api/middleware/auth.ts` |
+| JWT | `Authorization: Bearer` | `/admin/users`, `/admin/permission-groups` | `line-kpi-system/src/api/middleware/jwtAuth.ts` |
+
+Frontend page-level guard: `line-kpi-admin/src/middleware.ts` — verify `auth-token` cookie + check `ROUTE_PERMISSIONS` map
+
+### Permission System
+
+- **PermissionKey** union type: `line-kpi-system/src/models/PermissionGroup.ts`
+- JWT payload: `{ sub, username, displayName, isSuperAdmin, permissions[] }`
+- `isSuperAdmin = true` → bypass ทุก permission check
+- หลัง login ได้ 2 cookies: `auth-token` (httpOnly, ใช้โดย middleware) + `user-info` (client-readable, ใช้โดย Sidebar)
+
+### Key Files Reference
+
+| งาน | ไฟล์ที่ต้องแตะ |
+|-----|--------------|
+| เพิ่ม permission key | `line-kpi-system/src/models/PermissionGroup.ts` + `jwtAuth.ts` |
+| เพิ่ม backend route | `line-kpi-system/src/api/routes/` + register ใน `router.ts` |
+| เพิ่ม frontend page | `line-kpi-admin/src/app/(dashboard)/[route]/page.tsx` |
+| เพิ่ม API client | `line-kpi-admin/src/lib/api.ts` |
+| เปลี่ยน Sidebar menu | `line-kpi-admin/src/components/Sidebar.tsx` |
+| เปลี่ยน page permission | `line-kpi-admin/src/middleware.ts` (`ROUTE_PERMISSIONS`) |
+| เปลี่ยน AI config | `line-kpi-system/src/services/ai/` |
+| เปลี่ยน scheduled jobs | `line-kpi-system/src/jobs/scheduler.ts` |

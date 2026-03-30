@@ -27,6 +27,12 @@ export default function GroupsPage() {
   const [form, setForm] = useState<GroupForm>(emptyForm);
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredGroups = groups.filter(g =>
+    g.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const fetchGroups = () => {
     groupsApi.list().then(setGroups).catch(() => {}).finally(() => setLoading(false));
@@ -66,6 +72,22 @@ export default function GroupsPage() {
         </button>
       </div>
 
+      <div className="flex gap-2">
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') setSearchQuery(searchInput); }}
+          placeholder="ค้นหาชื่อกลุ่ม..."
+          className="rounded-xl max-w-xs"
+        />
+        <button
+          onClick={() => setSearchQuery(searchInput)}
+          className="bg-primary text-on-primary px-5 py-2 rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-95"
+        >
+          ค้นหา
+        </button>
+      </div>
+
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -91,7 +113,13 @@ export default function GroupsPage() {
               </tr>
             </thead>
             <tbody>
-              {groups.map((g) => (
+              {filteredGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center text-on-surface-variant">
+                    ไม่พบกลุ่มที่ค้นหา
+                  </td>
+                </tr>
+              ) : filteredGroups.map((g) => (
                 <tr key={g._id} className="border-b border-surface-container-low/50 last:border-0 hover:bg-surface-container-low/30 transition-colors">
                   <td className="px-6 py-3 text-sm font-bold text-on-surface">{g.name}</td>
                   <td className="px-6 py-3 text-xs font-mono text-on-surface-variant">{maskLineId(g.lineGroupId)}</td>
