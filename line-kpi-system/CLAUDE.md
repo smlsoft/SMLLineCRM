@@ -78,6 +78,9 @@ router.use(requirePermission('your-permission-key'));
 // 4. (ถ้ามี frontend) แจ้ง Frontend Dev อัพเดท middleware.ts และ Sidebar
 ```
 
+**Permission keys ที่มีอยู่แล้ว** (ห้ามซ้ำ):
+`dashboard`, `monitor`, `groups`, `oas`, `employees`, `summaries`, `issue-categories`, `conversations`, `settings`, `users`, `permission-groups`
+
 ### ใช้ AI (AiRouter)
 ```typescript
 import { aiRouter } from '../services/ai/AiRouter';
@@ -105,14 +108,16 @@ const config = await configService.get(); // cached 60s, อ่านจาก M
 
 ## Cache Services
 
-| Service | ข้อมูล | Refresh เมื่อ |
-|---------|--------|--------------|
-| `MasterIdCache` | lineUserId → Employee | เพิ่ม/แก้/ลบ Employee → เรียก `.initialize()` |
-| `OaRegistry` | channelId → LINE OA credentials | แก้ LINE OA settings → restart หรือ `.reload()` |
-| `GroupRegistry` | lineGroupId → OA | แก้ group mapping → restart หรือ `.reload()` |
-| `ConfigService` | SystemConfig document | อัพเดทอัตโนมัติทุก 60 วินาที |
+| Service | ข้อมูล | Refresh เมื่อ | API ที่ trigger |
+|---------|--------|--------------|----------------|
+| `MasterIdCache` | lineUserId → Employee | เพิ่ม/แก้/ลบ Employee | employeeRoutes → `.initialize()` |
+| `OaRegistry` | channelId → LINE OA credentials | แก้ LINE OA settings | restart หรือ `.reload()` |
+| `GroupRegistry` | lineGroupId → OA | แก้ group mapping | restart หรือ `.reload()` |
+| `ConfigService` | SystemConfig document | อัพเดทอัตโนมัติทุก 60 วินาที | — |
 
 Caches warm up ใน `app.ts` ก่อน listen — ถ้า warmup fail server จะ crash intentionally
+
+**GroupRegistry auto-register** — ถ้า OA อยู่ใน group แล้วแต่ยังไม่มี CustomerGroup record, message แรกจะ trigger auto-registration (fetch ชื่อ group จาก LINE API → upsert DB → cache) อย่า assume ว่า group ต้องถูก pre-create เสมอ
 
 ---
 
@@ -156,6 +161,31 @@ EVALUATE_PREVIOUS_DAY=true
 | `src/services/ConfigService.ts` | MongoDB config singleton + migration logic |
 | `src/services/ai/knownProviders.ts` | predefined AI provider configs (base URL, auth type) |
 | `src/jobs/prompts/` | AI prompt templates สำหรับ daily analysis |
+
+---
+
+## Conversation Response Status
+
+`monitorRoutes.ts` คำนวณ status ของ conversation แต่ละอันแบบนี้:
+- **normal** — มี override flag set หรือ staff ส่งข้อความล่าสุด
+- **waiting** — ลูกค้าส่งข้อความล่าสุด และ < 15 นาทีที่แล้ว
+- **slow** — ลูกค้าส่งข้อความล่าสุด และ > 15 นาทีที่แล้ว
+
+threshold 15 นาทีนี้ hardcoded ใน route — ถ้าต้องการเปลี่ยนต้องแก้ตรงนั้น
+
+---
+
+## Startup Auto-seeding
+
+- **AdminUser** — ถ้าไม่มี admin user เลยใน DB, server จะสร้าง superadmin (username: `superadmin`, password: `superadmin`) ให้อัตโนมัติ
+- **IssueCategoryMaster** — 10 หมวดหมู่ปัญหาภาษาไทย ถูก insert ให้อัตโนมัติถ้ายังไม่มี
+- **ConfigService** — มี 3 migrations ที่รันอัตโนมัติตอน startup เพื่อ convert format เก่า อย่า edit SystemConfig document ใน MongoDB โดยตรงด้วย format เก่า
+
+---
+
+## Webhook Rawbody Capture
+
+`app.ts` ใช้ `verify` callback ใน `express.json()` เพื่อเก็บ raw body ก่อน parse — ใช้สำหรับ LINE HMAC signature verification อย่า replace หรือ reconfigure JSON parser เพราะจะทำให้ webhook ไม่รับ signature verification
 
 ---
 

@@ -83,11 +83,66 @@ const res = await fetch('/api/proxy/your-endpoint');
 
 ```typescript
 'use client';
+import type { MyType } from '@/types/api';  // type-only imports เสมอ
+
 // data fetching ด้วย useState + useEffect เสมอ
 const [data, setData] = useState<Type[]>([]);
+const [loading, setLoading] = useState(true);
+
 useEffect(() => {
-  Promise.all([api1(), api2()]).then(([d1, d2]) => { setData(d1); });
-}, [deps]);
+  // parallel fetch หลาย endpoint พร้อมกัน
+  Promise.all([api1.list(), api2.list()])
+    .then(([d1, d2]) => { setData(d1); })
+    .catch(() => {})           // silent error — ไม่มี global error UI
+    .finally(() => setLoading(false));
+}, []);
+```
+
+### CRUD dialog pattern — ทุกหน้าที่มี create/edit ใช้แบบนี้
+
+```typescript
+const emptyForm = { name: '', description: '' }; // constant อยู่นอก component
+
+const [dialogOpen, setDialogOpen] = useState(false);
+const [editing, setEditing] = useState<MyType | null>(null); // null = create mode
+const [form, setForm] = useState(emptyForm);
+
+const openCreate = () => { setEditing(null); setForm(emptyForm); setDialogOpen(true); };
+const openEdit = (item: MyType) => { setEditing(item); setForm({ name: item.name, description: item.description }); setDialogOpen(true); };
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (editing) await api.update(editing._id, form);
+  else await api.create(form);
+  setDialogOpen(false);
+  refetchData(); // โหลดข้อมูลใหม่หลัง submit เสมอ
+};
+```
+
+### Search/filter pattern — สองขั้น (input vs committed query)
+
+```typescript
+const [searchInput, setSearchInput] = useState('');
+const [searchQuery, setSearchQuery] = useState('');
+
+// กด Enter หรือ button ถึงจะ filter จริง
+onKeyDown={(e) => { if (e.key === 'Enter') setSearchQuery(searchInput); }}
+
+const filtered = data.filter(item =>
+  item.name.toLowerCase().includes(searchQuery.toLowerCase())
+);
+```
+
+### Real-time refresh pattern — monitor page
+
+```typescript
+const REFRESH_INTERVAL = 30; // seconds
+
+useEffect(() => {
+  fetchData(); // โหลดทันที
+  const id = setInterval(fetchData, REFRESH_INTERVAL * 1000);
+  return () => clearInterval(id); // cleanup เสมอ
+}, []);
 ```
 
 ### Sidebar cookie pattern — อ่านใน useEffect เท่านั้น
@@ -104,6 +159,18 @@ useEffect(() => { setUserInfo(getUserInfo()); }, []);
   <SidebarLink href="/your-new-page">...</SidebarLink>
 )}
 ```
+
+---
+
+## UI Conventions
+
+- **Icons:** ใช้ `lucide-react` เสมอ — ห้ามใช้ icon library อื่น
+- **Corner radius:** `rounded-xl` หรือ `rounded-3xl` — ห้ามใช้ `rounded-lg`
+- **Status badges:** ใช้ emoji แสดงระดับ (🔴 urgent, 🟡 warning/idle, 🟢 normal/active) + `<StatusBadge />` component
+- **Color tokens:** ใช้ CSS custom properties: `--on-surface`, `--surface-container`, `--primary`, `--error` (อย่า hardcode สี)
+- **Class merging:** ใช้ `cn()` จาก `lib/utils.ts` แทนการต่อ string เอง
+- **Charts:** `recharts` (มีแล้วใน dependencies)
+- **Custom components:** `StatCard`, `StatusBadge`, `KpiScoreBadge` — ใช้แทน inline JSX เมื่อทำได้
 
 ---
 
