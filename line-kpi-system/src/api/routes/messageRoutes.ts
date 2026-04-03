@@ -9,7 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   const messages = await Message.find({ conversationId })
     .populate('employeeId', 'name employeeCode')
-    .populate('mediaId', 'data mimeType')
+    .populate('mediaId', 'data url mimeType')
     .sort({ timestamp: 1 })
     .lean();
 
