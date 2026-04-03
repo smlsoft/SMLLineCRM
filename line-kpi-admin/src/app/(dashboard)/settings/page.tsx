@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { configApi } from '@/lib/api';
-import type { SystemConfig, AiTaskName, AiProviderGroup, AiProviderInGroup, AiModelOption } from '@/types/api';
+import type { SystemConfig, AiTaskName, AiProviderGroup, AiProviderInGroup, AiModelOption, MediaStorageConfig } from '@/types/api';
 import { KNOWN_PROVIDERS, KNOWN_PROVIDERS_MAP } from '@/lib/knownProviders';
 import { cn } from '@/lib/utils';
 import {
   Plus, Trash2, Save, Zap, CheckCircle2, XCircle, Loader2,
-  ChevronDown, Eye, EyeOff, X, GripVertical,
+  ChevronDown, Eye, EyeOff, X, GripVertical, HardDrive,
 } from 'lucide-react';
 
 const MASK = '••••••';
@@ -57,6 +57,7 @@ export default function SettingsPage() {
         <p className="text-xs text-on-surface-variant mt-1">จัดการกลุ่ม AI Provider, routing และ Cron Jobs</p>
       </div>
 
+      <MediaStorageSection config={config} onConfigUpdate={setConfig} />
       <ProviderGroupsSection config={config} onConfigUpdate={setConfig} />
       <TaskRoutingSection config={config} onConfigUpdate={setConfig} />
       <CronJobsSection config={config} onConfigUpdate={setConfig} />
@@ -763,6 +764,215 @@ function CronJobsSection({
           enabled={config.jobs.dailyAnalysis.enabled}
           onToggle={handleToggle}
         />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  Section 4: Media Storage
+// ============================================================
+
+const EMPTY_R2 = { accountId: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' };
+const EMPTY_S3 = { region: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' };
+
+function MediaStorageSection({
+  config,
+  onConfigUpdate,
+}: {
+  config: SystemConfig | null;
+  onConfigUpdate: (cfg: SystemConfig) => void;
+}) {
+  const [media, setMedia] = useState<MediaStorageConfig>({
+    storage: 'none',
+    r2: { ...EMPTY_R2 },
+    s3: { ...EMPTY_S3 },
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  useEffect(() => {
+    if (config?.media) {
+      setMedia({
+        storage: config.media.storage ?? 'none',
+        r2: { ...EMPTY_R2, ...config.media.r2 },
+        s3: { ...EMPTY_S3, ...config.media.s3 },
+      });
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMsg('');
+    setTestResult(null);
+    try {
+      const updated = await configApi.update({ media });
+      onConfigUpdate(updated);
+      setSaveMsg('บันทึกแล้ว');
+    } catch {
+      setSaveMsg('เกิดข้อผิดพลาด');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(''), 3000);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await configApi.testMedia();
+      setTestResult(result);
+    } catch {
+      setTestResult({ success: false, error: 'เกิดข้อผิดพลาด' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const updateR2 = (field: string, value: string) =>
+    setMedia((m) => ({ ...m, r2: { ...m.r2, [field]: value } }));
+
+  const updateS3 = (field: string, value: string) =>
+    setMedia((m) => ({ ...m, s3: { ...m.s3, [field]: value } }));
+
+  return (
+    <div className="bg-surface-container rounded-3xl p-6 space-y-5">
+      <div className="flex items-center gap-2">
+        <HardDrive className="size-4 text-primary" />
+        <h2 className="text-sm font-bold text-on-surface">การเก็บรูปภาพจาก LINE</h2>
+      </div>
+
+      {/* Storage selector */}
+      <div className="space-y-2">
+        {(['none', 'r2', 's3'] as const).map((opt) => (
+          <label key={opt} className="flex items-start gap-3 p-3 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors">
+            <input
+              type="radio"
+              name="media-storage"
+              value={opt}
+              checked={media.storage === opt}
+              onChange={() => setMedia((m) => ({ ...m, storage: opt }))}
+              className="mt-0.5 accent-primary"
+            />
+            <div>
+              <p className="text-sm font-bold text-on-surface">
+                {opt === 'none' ? 'ไม่เก็บรูป' : opt === 'r2' ? 'Cloudflare R2' : 'AWS S3'}
+              </p>
+              <p className="text-[11px] text-on-surface-variant">
+                {opt === 'none'
+                  ? 'บันทึกเฉพาะว่ามีรูปส่งมา ไม่ดาวน์โหลด binary — ประหยัด storage มากที่สุด'
+                  : opt === 'r2'
+                    ? 'Cloudflare R2 — ไม่มีค่า egress, S3-compatible, 10 GB ฟรี/เดือน'
+                    : 'AWS S3 — $0.023/GB/เดือน'}
+              </p>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {/* R2 config */}
+      {media.storage === 'r2' && (
+        <div className="space-y-3 pt-1">
+          <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">Cloudflare R2 Credentials</p>
+          {[
+            { label: 'Account ID', field: 'accountId', placeholder: 'abc123def456...' },
+            { label: 'Access Key ID', field: 'accessKeyId', placeholder: 'R2 Access Key ID' },
+            { label: 'Secret Access Key', field: 'secretAccessKey', placeholder: MASK, isSecret: true },
+            { label: 'Bucket Name', field: 'bucketName', placeholder: 'my-media-bucket' },
+            { label: 'Public URL', field: 'publicUrl', placeholder: 'https://pub-xxx.r2.dev' },
+          ].map(({ label, field, placeholder, isSecret }) => (
+            <div key={field} className="space-y-1">
+              <label className="text-[11px] text-on-surface-variant">{label}</label>
+              {isSecret ? (
+                <ApiKeyInput
+                  value={media.r2[field as keyof typeof media.r2]}
+                  onChange={(v) => updateR2(field, v)}
+                  hasStored={!!config?.media?.r2?.secretAccessKey}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={media.r2[field as keyof typeof media.r2]}
+                  onChange={(e) => updateR2(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-surface-container border border-surface-container-high rounded-xl px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* S3 config */}
+      {media.storage === 's3' && (
+        <div className="space-y-3 pt-1">
+          <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">AWS S3 Credentials</p>
+          {[
+            { label: 'Region', field: 'region', placeholder: 'ap-southeast-1' },
+            { label: 'Access Key ID', field: 'accessKeyId', placeholder: 'AKIA...' },
+            { label: 'Secret Access Key', field: 'secretAccessKey', placeholder: MASK, isSecret: true },
+            { label: 'Bucket Name', field: 'bucketName', placeholder: 'my-media-bucket' },
+            { label: 'Public URL', field: 'publicUrl', placeholder: 'https://my-bucket.s3.amazonaws.com' },
+          ].map(({ label, field, placeholder, isSecret }) => (
+            <div key={field} className="space-y-1">
+              <label className="text-[11px] text-on-surface-variant">{label}</label>
+              {isSecret ? (
+                <ApiKeyInput
+                  value={media.s3[field as keyof typeof media.s3]}
+                  onChange={(v) => updateS3(field, v)}
+                  hasStored={!!config?.media?.s3?.secretAccessKey}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={media.s3[field as keyof typeof media.s3]}
+                  onChange={(e) => updateS3(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-surface-container border border-surface-container-high rounded-xl px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Test result */}
+      {testResult && (
+        <div className={cn('flex items-center gap-2 text-sm rounded-xl px-3 py-2', testResult.success ? 'bg-green-500/10 text-green-700' : 'bg-error/10 text-error')}>
+          {testResult.success
+            ? <><CheckCircle2 className="size-4 shrink-0" />เชื่อมต่อสำเร็จ</>
+            : <><XCircle className="size-4 shrink-0" />{testResult.error}</>}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-primary text-on-primary text-sm font-bold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+        >
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+          บันทึก
+        </button>
+        {media.storage !== 'none' && (
+          <button
+            onClick={handleTest}
+            disabled={testing || saving}
+            className="flex items-center gap-1.5 border border-surface-container-high text-on-surface text-sm font-bold px-4 py-2 rounded-xl hover:bg-surface-container-high transition-colors disabled:opacity-50"
+          >
+            {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
+            ทดสอบการเชื่อมต่อ
+          </button>
+        )}
+        {saveMsg && (
+          <span className={cn('text-sm', saveMsg === 'บันทึกแล้ว' ? 'text-green-600' : 'text-error')}>
+            {saveMsg}
+          </span>
+        )}
       </div>
     </div>
   );

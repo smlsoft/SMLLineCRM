@@ -285,8 +285,8 @@ export default function ConversationDetailPage() {
                         <div className="bg-primary text-on-primary p-4 rounded-2xl rounded-br-none shadow-md shadow-primary/10 text-sm leading-relaxed">
                           {msg.messageType === 'text'
                             ? msg.textContent
-                            : msg.messageType === 'image' && msg.mediaId?.data
-                              ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
+                            : msg.messageType === 'image' && (msg.mediaId?.url || msg.mediaId?.data)
+                              ? <img src={msg.mediaId.url ?? `data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
                               : <span className="italic opacity-70">[{msg.messageType}]</span>
                           }
                         </div>
@@ -306,8 +306,8 @@ export default function ConversationDetailPage() {
                         <div className="bg-surface-container text-on-surface p-4 rounded-2xl rounded-bl-none shadow-sm text-sm leading-relaxed">
                           {msg.messageType === 'text'
                             ? msg.textContent
-                            : msg.messageType === 'image' && msg.mediaId?.data
-                              ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
+                            : msg.messageType === 'image' && (msg.mediaId?.url || msg.mediaId?.data)
+                              ? <img src={msg.mediaId.url ?? `data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[220px] max-h-[220px] rounded-lg object-contain" />
                               : <span className="italic text-on-surface-variant">[{msg.messageType}]</span>
                           }
                         </div>

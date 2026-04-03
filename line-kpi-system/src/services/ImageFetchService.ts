@@ -1,8 +1,10 @@
 import { Readable } from 'stream';
 import { messagingApi } from '@line/bot-sdk';
 import { Types } from 'mongoose';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { MessageMedia } from '../models/MessageMedia';
 import { Message } from '../models/Message';
+import { configService } from './ConfigService';
 
 /**
  * ดึงรูปภาพจาก LINE Content API → แปลงเป็น base64 → บันทึกใน MessageMedia collection
@@ -18,6 +20,15 @@ export async function fetchAndStoreImage(params: {
   const { messageDocId, lineMessageId, oaAccessToken } = params;
 
   try {
+    // 0. ตรวจ config ว่าจะเก็บรูปที่ไหน
+    const cfg = await configService.getConfig();
+    const { storage } = cfg.media;
+
+    if (storage === 'none') {
+      // ไม่เก็บรูปเลย — ข้ามได้เลย
+      return;
+    }
+
     // 1. สร้าง BlobClient สำหรับดึง binary content
     const blobClient = new messagingApi.MessagingApiBlobClient({
       channelAccessToken: oaAccessToken,
@@ -34,13 +45,23 @@ export async function fetchAndStoreImage(params: {
       stream.on('error', reject);
     });
     const buffer = Buffer.concat(chunks);
-
-    // 4. แปลงเป็น base64
-    const base64Data = buffer.toString('base64');
     const sizeBytes = buffer.byteLength;
 
-    // 5. ตรวจ MIME type จาก magic bytes (ไม่ต้อง request เพิ่ม)
+    // 4. ตรวจ MIME type จาก magic bytes
     const mimeType = detectMimeType(buffer);
+    const ext = mimeType.split('/')[1] ?? 'bin';
+    const objectKey = `media/${lineMessageId}.${ext}`;
+
+    let mediaDocData: { data?: string; url?: string };
+
+    if (storage === 'r2' || storage === 's3') {
+      // 5. Upload ไป cloud storage
+      const url = await uploadToCloud({ buffer, objectKey, mimeType, storage, cfg });
+      mediaDocData = { url };
+    } else {
+      // fallback — เก็บ base64 ใน MongoDB (ไม่ควรถึงตรงนี้ แต่ type-safe)
+      mediaDocData = { data: buffer.toString('base64') };
+    }
 
     // 6. บันทึก MessageMedia (idempotent — unique index บน lineMessageId)
     let mediaDoc: { _id: Types.ObjectId };
@@ -49,7 +70,7 @@ export async function fetchAndStoreImage(params: {
         messageId: messageDocId,
         lineMessageId,
         mimeType,
-        data: base64Data,
+        ...mediaDocData,
         sizeBytes,
         fetchedAt: new Date(),
       });
@@ -71,12 +92,53 @@ export async function fetchAndStoreImage(params: {
     );
 
     console.info(
-      `[ImageFetchService] Stored media for message ${lineMessageId} (${sizeBytes} bytes, ${mimeType})`
+      `[ImageFetchService] Stored media for message ${lineMessageId} (${sizeBytes} bytes, ${mimeType}, storage=${storage})`
     );
   } catch (err) {
     // ไม่ throw — message ถูก save แล้ว image เป็น best-effort
     console.warn(`[ImageFetchService] Failed to fetch/store image for ${lineMessageId}:`, err);
   }
+}
+
+async function uploadToCloud(opts: {
+  buffer: Buffer;
+  objectKey: string;
+  mimeType: string;
+  storage: 'r2' | 's3';
+  cfg: Awaited<ReturnType<typeof configService.getConfig>>;
+}): Promise<string> {
+  const { buffer, objectKey, mimeType, storage, cfg } = opts;
+
+  let client: S3Client;
+  let bucketName: string;
+  let publicUrl: string;
+
+  if (storage === 'r2') {
+    const { accountId, accessKeyId, secretAccessKey, bucketName: bn, publicUrl: pu } = cfg.media.r2;
+    client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId, secretAccessKey },
+    });
+    bucketName = bn;
+    publicUrl = pu;
+  } else {
+    const { region, accessKeyId, secretAccessKey, bucketName: bn, publicUrl: pu } = cfg.media.s3;
+    client = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
+    bucketName = bn;
+    publicUrl = pu;
+  }
+
+  await client.send(new PutObjectCommand({
+    Bucket: bucketName,
+    Key: objectKey,
+    Body: buffer,
+    ContentType: mimeType,
+  }));
+
+  // publicUrl ควรไม่มี trailing slash
+  const base = publicUrl.replace(/\/$/, '');
+  return `${base}/${objectKey}`;
 }
 
 function detectMimeType(buf: Buffer): string {

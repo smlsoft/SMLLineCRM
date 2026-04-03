@@ -1,5 +1,29 @@
 import { Schema, model } from 'mongoose';
 
+// ---- Media Storage interfaces ----
+
+export interface IMediaR2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
+export interface IMediaS3Config {
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
+export interface IMediaStorageConfig {
+  storage: 'none' | 'r2' | 's3';
+  r2: IMediaR2Config;
+  s3: IMediaS3Config;
+}
+
 // ---- New interfaces ----
 
 export interface IAiProviderInGroup {
@@ -27,6 +51,7 @@ export interface ISystemConfig {
     providerGroups: Record<string, IAiProviderGroup>;
     tasks: Record<AiTaskName, { groupId: string }>;
   };
+  media: IMediaStorageConfig;
   updatedAt: Date;
 }
 
@@ -51,6 +76,28 @@ const providerGroupSchema = new Schema<IAiProviderGroup>(
   { _id: false }
 );
 
+const mediaR2Schema = new Schema<IMediaR2Config>(
+  {
+    accountId:       { type: String, default: '' },
+    accessKeyId:     { type: String, default: '' },
+    secretAccessKey: { type: String, default: '' },
+    bucketName:      { type: String, default: '' },
+    publicUrl:       { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+const mediaS3Schema = new Schema<IMediaS3Config>(
+  {
+    region:          { type: String, default: '' },
+    accessKeyId:     { type: String, default: '' },
+    secretAccessKey: { type: String, default: '' },
+    bucketName:      { type: String, default: '' },
+    publicUrl:       { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const systemConfigSchema = new Schema<ISystemConfig>(
   {
     _id: { type: String, default: 'singleton' },
@@ -71,6 +118,11 @@ const systemConfigSchema = new Schema<ISystemConfig>(
       tasks: {
         issueAnalysis: { groupId: { type: String, default: 'grp_default' } },
       },
+    },
+    media: {
+      storage: { type: String, enum: ['none', 'r2', 's3'], default: 'none' },
+      r2: { type: mediaR2Schema, default: () => ({}) },
+      s3: { type: mediaS3Schema, default: () => ({}) },
     },
     updatedAt: { type: Date, default: () => new Date() },
   },

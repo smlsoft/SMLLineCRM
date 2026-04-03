@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { configService } from '../../services/ConfigService';
-import { IAiProviderGroup, IAiProviderInGroup, AiTaskName } from '../../models/SystemConfig';
+import { IAiProviderGroup, IAiProviderInGroup, AiTaskName, IMediaStorageConfig } from '../../models/SystemConfig';
 import { aiRouter } from '../../services/ai';
 import { KNOWN_PROVIDERS_MAP } from '../../services/ai/knownProviders';
 
@@ -17,6 +17,33 @@ function maskGroup(group: IAiProviderGroup): IAiProviderGroup {
   return { ...group, providers: group.providers.map(maskProviderInGroup) };
 }
 
+const EMPTY_MEDIA: IMediaStorageConfig = {
+  storage: 'none',
+  r2: { accountId: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' },
+  s3: { region: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' },
+};
+
+function maskMediaConfig(media: IMediaStorageConfig | undefined): IMediaStorageConfig {
+  if (!media) return EMPTY_MEDIA;
+  return {
+    storage: media.storage ?? 'none',
+    r2: {
+      accountId:   media.r2?.accountId   ?? '',
+      accessKeyId: media.r2?.accessKeyId ?? '',
+      secretAccessKey: media.r2?.secretAccessKey ? MASK : '',
+      bucketName:  media.r2?.bucketName  ?? '',
+      publicUrl:   media.r2?.publicUrl   ?? '',
+    },
+    s3: {
+      region:      media.s3?.region      ?? '',
+      accessKeyId: media.s3?.accessKeyId ?? '',
+      secretAccessKey: media.s3?.secretAccessKey ? MASK : '',
+      bucketName:  media.s3?.bucketName  ?? '',
+      publicUrl:   media.s3?.publicUrl   ?? '',
+    },
+  };
+}
+
 function maskConfig(cfg: Awaited<ReturnType<typeof configService.getConfig>>) {
   const maskedGroups: Record<string, IAiProviderGroup> = {};
   for (const [key, group] of Object.entries(cfg.ai.providerGroups)) {
@@ -28,14 +55,20 @@ function maskConfig(cfg: Awaited<ReturnType<typeof configService.getConfig>>) {
       providerGroups: maskedGroups,
       tasks: cfg.ai.tasks,
     },
+    media: maskMediaConfig(cfg.media),
     updatedAt: cfg.updatedAt,
   };
 }
 
 // GET /api/v1/config
 router.get('/', async (_req: Request, res: Response) => {
-  const cfg = await configService.getConfig();
-  res.json(maskConfig(cfg));
+  try {
+    const cfg = await configService.getConfig();
+    res.json(maskConfig(cfg));
+  } catch (err) {
+    console.error('[configRoutes] GET /config error:', err);
+    res.status(500).json({ error: 'Failed to load config' });
+  }
 });
 
 // PUT /api/v1/config
@@ -60,6 +93,23 @@ router.put('/', async (req: Request, res: Response) => {
         } | null
       >;
       tasks?: Partial<Record<AiTaskName, { groupId?: string }>>;
+    };
+    media?: {
+      storage?: 'none' | 'r2' | 's3';
+      r2?: {
+        accountId?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        bucketName?: string;
+        publicUrl?: string;
+      };
+      s3?: {
+        region?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        bucketName?: string;
+        publicUrl?: string;
+      };
     };
   };
 
@@ -117,6 +167,35 @@ router.put('/', async (req: Request, res: Response) => {
       // Set entire ai.tasks object to avoid Mongoose dot-notation issues
       // when ai sub-document contains both Map and nested object fields
       patch['ai.tasks'] = tasksPatch;
+    }
+  }
+
+  // --- Media Storage ---
+  if (body.media !== undefined) {
+    if (body.media.storage !== undefined) {
+      patch['media.storage'] = body.media.storage;
+    }
+    if (body.media.r2 !== undefined) {
+      const cfg = await configService.getConfig();
+      const existing = cfg.media.r2;
+      patch['media.r2.accountId']       = body.media.r2.accountId       ?? existing.accountId;
+      patch['media.r2.accessKeyId']     = body.media.r2.accessKeyId     ?? existing.accessKeyId;
+      patch['media.r2.secretAccessKey'] = (body.media.r2.secretAccessKey && body.media.r2.secretAccessKey !== MASK)
+        ? body.media.r2.secretAccessKey
+        : existing.secretAccessKey;
+      patch['media.r2.bucketName']      = body.media.r2.bucketName      ?? existing.bucketName;
+      patch['media.r2.publicUrl']       = body.media.r2.publicUrl       ?? existing.publicUrl;
+    }
+    if (body.media.s3 !== undefined) {
+      const cfg = await configService.getConfig();
+      const existing = cfg.media.s3;
+      patch['media.s3.region']          = body.media.s3.region          ?? existing.region;
+      patch['media.s3.accessKeyId']     = body.media.s3.accessKeyId     ?? existing.accessKeyId;
+      patch['media.s3.secretAccessKey'] = (body.media.s3.secretAccessKey && body.media.s3.secretAccessKey !== MASK)
+        ? body.media.s3.secretAccessKey
+        : existing.secretAccessKey;
+      patch['media.s3.bucketName']      = body.media.s3.bucketName      ?? existing.bucketName;
+      patch['media.s3.publicUrl']       = body.media.s3.publicUrl       ?? existing.publicUrl;
     }
   }
 
@@ -222,6 +301,53 @@ router.post('/test-ai', async (req: Request, res: Response) => {
       ? `${err.response?.status ?? ''} ${JSON.stringify(err.response?.data ?? err.message)}`
       : String(err);
     res.status(200).json({ success: false, error: msg.slice(0, 300) });
+  }
+});
+
+// POST /api/v1/config/test-media
+// ทดสอบการเชื่อมต่อกับ R2 / S3 โดย list objects (1 item)
+router.post('/test-media', async (_req: Request, res: Response) => {
+  try {
+    const cfg = await configService.getConfig();
+    const { storage } = cfg.media;
+
+    if (storage === 'none') {
+      res.json({ success: false, error: 'Media storage is set to "none"' });
+      return;
+    }
+
+    const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+
+    let client: InstanceType<typeof S3Client>;
+    let bucketName: string;
+
+    if (storage === 'r2') {
+      const { accountId, accessKeyId, secretAccessKey, bucketName: bn } = cfg.media.r2;
+      if (!accountId || !accessKeyId || !secretAccessKey || !bn) {
+        res.json({ success: false, error: 'R2 credentials incomplete' });
+        return;
+      }
+      client = new S3Client({
+        region: 'auto',
+        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        credentials: { accessKeyId, secretAccessKey },
+      });
+      bucketName = bn;
+    } else {
+      const { region, accessKeyId, secretAccessKey, bucketName: bn } = cfg.media.s3;
+      if (!region || !accessKeyId || !secretAccessKey || !bn) {
+        res.json({ success: false, error: 'S3 credentials incomplete' });
+        return;
+      }
+      client = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
+      bucketName = bn;
+    }
+
+    await client.send(new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 }));
+    res.json({ success: true, storage });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.json({ success: false, error: msg.slice(0, 300) });
   }
 });
 

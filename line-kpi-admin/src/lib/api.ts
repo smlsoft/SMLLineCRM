@@ -209,4 +209,8 @@ export const configApi = {
       method: 'POST',
       body: JSON.stringify({ provider, apiKey }),
     }),
+  testMedia: () =>
+    apiFetch<{ success: boolean; storage?: string; error?: string }>(`${P}/config/test-media`, {
+      method: 'POST',
+    }),
 };

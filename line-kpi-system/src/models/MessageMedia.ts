@@ -4,7 +4,8 @@ export interface IMessageMedia extends Document {
   messageId: Types.ObjectId;   // ref: 'Message'
   lineMessageId: string;        // สำหรับ dedup / debug
   mimeType: string;             // 'image/jpeg' | 'image/png' | ...
-  data: string;                 // base64-encoded binary
+  data?: string;                // base64-encoded binary (เมื่อเก็บใน MongoDB)
+  url?: string;                 // URL ของรูปใน cloud storage (R2/S3)
   sizeBytes: number;
   fetchedAt: Date;
 }
@@ -14,7 +15,8 @@ const messageMediaSchema = new Schema<IMessageMedia>(
     messageId:     { type: Schema.Types.ObjectId, ref: 'Message', required: true },
     lineMessageId: { type: String, required: true },
     mimeType:      { type: String, required: true },
-    data:          { type: String, required: true },
+    data:          { type: String },
+    url:           { type: String },
     sizeBytes:     { type: Number, required: true },
     fetchedAt:     { type: Date, required: true },
   },

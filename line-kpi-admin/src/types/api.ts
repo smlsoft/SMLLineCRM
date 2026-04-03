@@ -88,7 +88,7 @@ export interface Message {
   employeeId?: { _id: string; name: string; employeeCode: string };
   messageType: string;
   textContent?: string;
-  mediaId?: { _id: string; data: string; mimeType: string };
+  mediaId?: { _id: string; data?: string; url?: string; mimeType: string };
   timestamp: string;
 }
 
@@ -281,6 +281,28 @@ export interface AdminUser {
   updatedAt: string;
 }
 
+export interface MediaR2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
+export interface MediaS3Config {
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
+export interface MediaStorageConfig {
+  storage: 'none' | 'r2' | 's3';
+  r2: MediaR2Config;
+  s3: MediaS3Config;
+}
+
 export interface SystemConfig {
   jobs: {
     dailyAnalysis: { enabled: boolean };
@@ -289,5 +311,6 @@ export interface SystemConfig {
     providerGroups: Record<string, AiProviderGroup>;
     tasks: Record<AiTaskName, { groupId: string }>;
   };
+  media: MediaStorageConfig;
   updatedAt: string;
 }
