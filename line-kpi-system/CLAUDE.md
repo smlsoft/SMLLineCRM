@@ -178,6 +178,7 @@ threshold 15 นาทีนี้ hardcoded ใน route — ถ้าต้อ
 ## Startup Auto-seeding
 
 - **AdminUser** — ถ้าไม่มี admin user เลยใน DB, server จะสร้าง superadmin (username: `superadmin`, password: `superadmin`) ให้อัตโนมัติ
+⚠️ ความปลอดภัย: ต้องเปลี่ยนรหัสผ่าน superadmin ทันทีหลัง login ครั้งแรกใน production
 - **IssueCategoryMaster** — 10 หมวดหมู่ปัญหาภาษาไทย ถูก insert ให้อัตโนมัติถ้ายังไม่มี
 - **ConfigService** — มี 3 migrations ที่รันอัตโนมัติตอน startup เพื่อ convert format เก่า อย่า edit SystemConfig document ใน MongoDB โดยตรงด้วย format เก่า
 

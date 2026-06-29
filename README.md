@@ -5,7 +5,7 @@ openssl rand -base64 32
 
 ### setup Caddy
 ```
-root@gohvps:/etc/caddy# cat Caddyfile 
+root@your-server:/etc/caddy# cat Caddyfile 
 webhook.com {
     handle /webhook/* {
         reverse_proxy localhost:3102
