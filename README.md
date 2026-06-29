@@ -6,7 +6,7 @@ openssl rand -base64 32
 ### setup Caddy
 ```
 root@gohvps:/etc/caddy# cat Caddyfile 
-supportlinehook.smlaccount.com {
+webhook.com {
     handle /webhook/* {
         reverse_proxy localhost:3102
     }
