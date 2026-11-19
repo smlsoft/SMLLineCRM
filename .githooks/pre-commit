@@ -1,0 +1,16 @@
+#!/bin/bash
+# pre-commit: refuse a direct commit on main or master.
+# Work happens on a task branch (team-start); team-finish merges into main, which does not run this hook.
+# Bypass on purpose, for one commit:  TEAM_ALLOW_MAIN_COMMIT=1 git commit ...   or   git commit --no-verify
+branch=$(git symbolic-ref -q --short HEAD)
+case "$branch" in
+  main|master)
+    [ "${TEAM_ALLOW_MAIN_COMMIT:-}" = 1 ] && exit 0
+    {
+      echo "pre-commit: refused - direct commit on '$branch'."
+      echo "Work on a task branch (team-start). To commit here on purpose:"
+      echo "  TEAM_ALLOW_MAIN_COMMIT=1 git commit ...    or    git commit --no-verify"
+    } >&2
+    exit 1 ;;
+esac
+exit 0
