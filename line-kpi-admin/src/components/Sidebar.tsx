@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, Bot, UserCheck,
   BarChart2, FileText, MessageSquare, Activity, Settings, Tag,
-  Shield, UserCog, LogOut
+  Shield, UserCog, LogOut, ClipboardCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -15,6 +15,7 @@ import { useState, useEffect } from 'react';
 const navItems: { label: string; href: string; icon: React.ElementType; permission: PermissionKey }[] = [
   { label: 'แดชบอร์ด', href: '/', icon: LayoutDashboard, permission: 'dashboard' },
   { label: 'จอ Monitor', href: '/monitor', icon: Activity, permission: 'monitor' },
+  { label: 'ตรวจ Auto-Resolve', href: '/auto-resolve', icon: ClipboardCheck, permission: 'auto-resolve' },
   { label: 'กลุ่มลูกค้า', href: '/groups', icon: Users, permission: 'groups' },
   { label: 'LINE OA', href: '/oas', icon: Bot, permission: 'oas' },
   { label: 'พนักงาน', href: '/employees', icon: UserCheck, permission: 'employees' },

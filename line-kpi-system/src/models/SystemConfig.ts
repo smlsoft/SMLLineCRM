@@ -41,6 +41,12 @@ export interface IAiProviderGroup {
 
 export type AiTaskName = 'issueAnalysis';
 
+export type AutoResolveMode = 'review' | 'auto';
+
+export interface IAutoResolveConfig {
+  mode: AutoResolveMode;
+}
+
 export interface ISystemConfig {
   _id: string;
   jobs: {
@@ -52,6 +58,7 @@ export interface ISystemConfig {
     tasks: Record<AiTaskName, { groupId: string }>;
   };
   media: IMediaStorageConfig;
+  autoResolve?: IAutoResolveConfig;
   updatedAt: Date;
 }
 
@@ -123,6 +130,9 @@ const systemConfigSchema = new Schema<ISystemConfig>(
       storage: { type: String, enum: ['none', 'r2', 's3'], default: 'none' },
       r2: { type: mediaR2Schema, default: () => ({}) },
       s3: { type: mediaS3Schema, default: () => ({}) },
+    },
+    autoResolve: {
+      mode: { type: String, enum: ['review', 'auto'], default: 'review' },
     },
     updatedAt: { type: Date, default: () => new Date() },
   },

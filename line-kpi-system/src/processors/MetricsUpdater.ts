@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { Conversation } from '../models/Conversation';
+import { AutoResolveLog } from '../models/AutoResolveLog';
 import { SenderType } from '../models/Message';
 
 interface UpdateParams {
@@ -58,6 +59,22 @@ export class MetricsUpdater {
     if (Object.keys(set).length) updateOp.$set = set;
 
     await Conversation.updateOne({ _id: conversationId }, updateOp);
+
+    if (senderType === 'customer') {
+      await AutoResolveLog.updateMany(
+        {
+          conversationId,
+          status: 'pending_review',
+          lastMessageAtSnapshot: { $lt: timestamp },
+        },
+        {
+          $set: {
+            status: 'expired',
+            expiredReason: 'ลูกค้าส่งข้อความใหม่เข้ามาหลังระบบประเมิน',
+          },
+        }
+      );
+    }
 
     // Update rolling avgResponseMs and maxResponseMs separately to keep atomic op clean
     if (responseGapMs !== undefined && senderType === 'employee') {

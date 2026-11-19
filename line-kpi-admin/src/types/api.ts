@@ -223,6 +223,7 @@ export interface ListModelsResponse {
 export type PermissionKey =
   | 'dashboard'
   | 'monitor'
+  | 'auto-resolve'
   | 'groups'
   | 'oas'
   | 'employees'
@@ -234,7 +235,7 @@ export type PermissionKey =
   | 'permission-groups';
 
 export const ALL_PERMISSION_KEYS: PermissionKey[] = [
-  'dashboard', 'monitor', 'groups', 'oas', 'employees',
+  'dashboard', 'monitor', 'auto-resolve', 'groups', 'oas', 'employees',
   'summaries', 'issue-categories', 'conversations', 'settings',
   'users', 'permission-groups',
 ];
@@ -242,6 +243,7 @@ export const ALL_PERMISSION_KEYS: PermissionKey[] = [
 export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'dashboard': 'แดชบอร์ด',
   'monitor': 'จอ Monitor',
+  'auto-resolve': 'ตรวจ Auto-Resolve',
   'groups': 'กลุ่มลูกค้า',
   'oas': 'LINE OA',
   'employees': 'พนักงาน',
@@ -312,5 +314,61 @@ export interface SystemConfig {
     tasks: Record<AiTaskName, { groupId: string }>;
   };
   media: MediaStorageConfig;
+  autoResolve?: { mode: AutoResolveMode };
   updatedAt: string;
+}
+
+// ---- Auto-Resolve Review & Audit Log ----
+
+export type AutoResolveMode = 'review' | 'auto';
+export type AutoResolveLayer = 'rule' | 'ai';
+export type AutoResolveStatus =
+  | 'pending_review'
+  | 'approved'
+  | 'rejected'
+  | 'auto_resolved'
+  | 'reverted'
+  | 'expired';
+
+export interface AutoResolveSnapshotMessage {
+  senderType: 'employee' | 'customer';
+  senderDisplayName: string;
+  messageType: string;
+  textContent?: string;
+  timestamp: string;
+}
+
+export interface AutoResolveLog {
+  _id: string;
+  conversationId: string;
+  customerGroupId: { _id: string; name: string } | string;
+  lineGroupId: string;
+  layer: AutoResolveLayer;
+  ruleCode?: string;
+  reason: string;
+  confidence?: number;
+  status: AutoResolveStatus;
+  lastMessageAtSnapshot: string;
+  snapshotMessages: AutoResolveSnapshotMessage[];
+  proposedBy: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  revertedBy?: string;
+  revertedAt?: string;
+  expiredReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AutoResolveCounts = Record<AutoResolveStatus, number>;
+
+export interface AutoResolveLogsResponse {
+  mode: AutoResolveMode;
+  counts: AutoResolveCounts;
+  data: AutoResolveLog[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }

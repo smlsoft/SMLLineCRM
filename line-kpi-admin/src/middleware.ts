@@ -6,6 +6,7 @@ const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET ?? '');
 // Route → required permission key
 const ROUTE_PERMISSIONS: Record<string, string> = {
   '/monitor': 'monitor',
+  '/auto-resolve': 'auto-resolve',
   '/groups': 'groups',
   '/oas': 'oas',
   '/employees': 'employees',
