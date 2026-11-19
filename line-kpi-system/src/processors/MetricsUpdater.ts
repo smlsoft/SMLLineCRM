@@ -39,6 +39,7 @@ export class MetricsUpdater {
       inc.customerMessageCount = 1;
       addToSet.participantCustomerIds = lineUserId;
       set.lastCustomerMessageAt = timestamp;
+      set.responseStatusOverride = null;
     } else {
       inc.employeeMessageCount = 1;
       set.lastEmployeeMessageAt = timestamp;
