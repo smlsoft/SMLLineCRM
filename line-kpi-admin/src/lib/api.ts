@@ -214,3 +214,38 @@ export const configApi = {
       method: 'POST',
     }),
 };
+
+// ---- Auto-Resolve Review & Log ----
+export const autoResolveApi = {
+  listLogs: (params?: {
+    status?: import('@/types/api').AutoResolveStatus | 'all';
+    layer?: import('@/types/api').AutoResolveLayer;
+    page?: number;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.layer) q.set('layer', params.layer);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    return apiFetch<import('@/types/api').AutoResolveLogsResponse>(`${P}/admin/auto-resolve/logs?${q}`);
+  },
+  approve: (id: string) =>
+    apiFetch<{ ok: boolean; log: import('@/types/api').AutoResolveLog }>(`${P}/admin/auto-resolve/logs/${id}/approve`, {
+      method: 'POST',
+    }),
+  reject: (id: string, note?: string) =>
+    apiFetch<{ ok: boolean; log: import('@/types/api').AutoResolveLog }>(`${P}/admin/auto-resolve/logs/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+  revert: (id: string) =>
+    apiFetch<{ ok: boolean; log: import('@/types/api').AutoResolveLog }>(`${P}/admin/auto-resolve/logs/${id}/revert`, {
+      method: 'POST',
+    }),
+  setMode: (mode: import('@/types/api').AutoResolveMode) =>
+    apiFetch<{ ok: boolean; mode: import('@/types/api').AutoResolveMode }>(`${P}/admin/auto-resolve/mode`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode }),
+    }),
+};

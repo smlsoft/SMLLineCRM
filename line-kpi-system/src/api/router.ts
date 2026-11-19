@@ -13,6 +13,7 @@ import { monitorRoutes } from './routes/monitorRoutes';
 import { configRoutes } from './routes/configRoutes';
 import { issueCategoryRoutes } from './routes/issueCategoryRoutes';
 import { dailyReportRoutes } from './routes/dailyReportRoutes';
+import { autoResolveAgentRoutes, autoResolveAdminRoutes } from './routes/autoResolveRoutes';
 
 const apiRouter = Router();
 
@@ -31,9 +32,11 @@ apiRouter.use('/messages', groupMessageRoutes);
 apiRouter.use('/monitor', monitorRoutes);
 apiRouter.use('/config', configRoutes);
 apiRouter.use('/issue-categories', issueCategoryRoutes);
+apiRouter.use('/auto-resolve', autoResolveAgentRoutes);
 
 // ── Admin management routes (API key + JWT required) ──────────
 apiRouter.use('/admin/users', jwtAuth, adminUserRoutes);
 apiRouter.use('/admin/permission-groups', jwtAuth, permissionGroupRoutes);
+apiRouter.use('/admin/auto-resolve', jwtAuth, autoResolveAdminRoutes);
 
 export { apiRouter };

@@ -3,6 +3,7 @@ import { Schema, model, Document } from 'mongoose';
 export type PermissionKey =
   | 'dashboard'
   | 'monitor'
+  | 'auto-resolve'
   | 'groups'
   | 'oas'
   | 'employees'
@@ -14,7 +15,7 @@ export type PermissionKey =
   | 'permission-groups';
 
 export const ALL_PERMISSION_KEYS: PermissionKey[] = [
-  'dashboard', 'monitor', 'groups', 'oas', 'employees',
+  'dashboard', 'monitor', 'auto-resolve', 'groups', 'oas', 'employees',
   'summaries', 'issue-categories', 'conversations', 'settings',
   'users', 'permission-groups',
 ];
