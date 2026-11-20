@@ -86,8 +86,10 @@ interface ProposalResult {
   body: Record<string, unknown>;
 }
 
+/** Accepts an ISO string, a Date or epoch milliseconds (as the original /propose did). */
 function parseIsoDate(raw: unknown): Date | null {
-  if (typeof raw !== 'string' && !(raw instanceof Date)) return null;
+  if (typeof raw !== 'string' && typeof raw !== 'number' && !(raw instanceof Date)) return null;
+  if (raw === '' || raw === 0) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -486,7 +488,22 @@ autoResolveAgentRoutes.post('/queue/:id/complete', async (req: Request, res: Res
     });
 
     if (proposal.httpStatus >= 400) {
-      res.status(proposal.httpStatus).json(proposal.body);
+      // Do not leave the item claimed until its lease runs out: a missing conversation
+      // can never be decided (expire it); any other 4xx is a bad agent request
+      // (give it back like /release, failing it after the last attempt).
+      const error = String(proposal.body.error ?? `proposal rejected with ${proposal.httpStatus}`).slice(0, 1000);
+      const set: Record<string, unknown> =
+        proposal.httpStatus === 404
+          ? { status: 'expired', expiredReason: `proposal rejected: ${error}` }
+          : { status: item.attempts >= TRIAGE_MAX_ATTEMPTS ? 'failed' : 'pending', lastError: error };
+      const unset: Record<string, 1> =
+        proposal.httpStatus === 404 ? { leaseUntil: 1 } : { leaseUntil: 1, claimedBy: 1, claimedAt: 1 };
+      const updated = await TriageQueueItem.findOneAndUpdate(
+        { _id: item._id, status: 'claimed', claimedBy: agentId },
+        { $set: set, $unset: unset },
+        { new: true }
+      );
+      res.status(proposal.httpStatus).json({ ...proposal.body, item: updated });
       return;
     }
 

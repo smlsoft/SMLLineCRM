@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { PipelineStage, Types } from 'mongoose';
 import { CustomerGroup } from '../../models/CustomerGroup';
 import { Employee } from '../../models/Employee';
-import { TriageQueueItem } from '../../models/TriageQueueItem';
+import { TriageQueueItem, TRIAGE_MAX_ATTEMPTS } from '../../models/TriageQueueItem';
 import { AutoResolveLog } from '../../models/AutoResolveLog';
 
 type TriageStatus = 'queued' | 'needs_reply' | 'resolved_pending_review' | null;
@@ -43,7 +43,13 @@ async function attachTriageStatus(groups: MonitorGroupRow[]): Promise<void> {
     ? await Promise.all([
         TriageQueueItem.find({
           conversationId: { $in: ids },
-          $or: [{ status: { $in: ['pending', 'claimed'] } }, { status: 'done', verdict: 'needs_reply' }],
+          $or: [
+            { status: 'pending' },
+            // A claimed item whose lease ran out on its last attempt will be failed by the
+            // next claim call; it is no longer waiting for the AI.
+            { status: 'claimed', $or: [{ leaseUntil: { $gte: new Date() } }, { attempts: { $lt: TRIAGE_MAX_ATTEMPTS } }] },
+            { status: 'done', verdict: 'needs_reply' },
+          ],
         })
           .select('conversationId lastMessageAtSnapshot status verdict')
           .lean(),
