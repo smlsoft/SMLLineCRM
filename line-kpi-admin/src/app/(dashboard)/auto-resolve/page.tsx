@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { autoResolveApi } from '@/lib/api';
 import type {
   AutoResolveCounts,
@@ -86,6 +87,20 @@ function getGroupName(log: AutoResolveLog): string {
     return log.customerGroupId.name;
   }
   return log.lineGroupId;
+}
+
+/** Scrollable box that opens at its newest (bottom) content; scrolls again only when scrollKey changes. */
+function ScrollToBottomBox({ scrollKey, className, children }: { scrollKey: string; className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [scrollKey]);
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  );
 }
 
 export default function AutoResolvePage() {
@@ -470,7 +485,10 @@ export default function AutoResolvePage() {
 
                     {/* Chat Snapshot */}
                     {log.snapshotMessages && log.snapshotMessages.length > 0 && (
-                      <div className="bg-surface-container/60 border border-surface-container-high/30 rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto">
+                      <ScrollToBottomBox
+                        scrollKey={`${log._id}-${log.snapshotMessages.length}`}
+                        className="bg-surface-container/60 border border-surface-container-high/30 rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto"
+                      >
                         {log.snapshotMessages.map((msg, idx) => {
                           const isEmployee = msg.senderType === 'employee';
                           return (
@@ -501,7 +519,7 @@ export default function AutoResolvePage() {
                             </div>
                           );
                         })}
-                      </div>
+                      </ScrollToBottomBox>
                     )}
                   </div>
 
