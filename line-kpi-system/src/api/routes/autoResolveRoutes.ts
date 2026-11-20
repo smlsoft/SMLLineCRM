@@ -602,6 +602,91 @@ export const autoResolveAdminRoutes = Router();
 autoResolveAdminRoutes.use(requirePermission('auto-resolve'));
 
 // GET /api/v1/admin/auto-resolve/logs?status=&layer=&page=&limit=
+// GET /api/v1/admin/auto-resolve/queue → { counts: { queued, needs_reply }, data }
+// Rooms the Layer 2 (AI) queue holds for the room's current customer message — the same rooms
+// /monitor badges "รอ AI ตรวจ" / "ยังไม่ได้ตอบ" (filter and snapshot match as attachTriageStatus).
+autoResolveAdminRoutes.get('/queue', async (_req: Request, res: Response) => {
+  try {
+    const items = await TriageQueueItem.find({
+      $or: [
+        { status: 'pending' },
+        { status: 'claimed', $or: [{ leaseUntil: { $gte: new Date() } }, { attempts: { $lt: TRIAGE_MAX_ATTEMPTS } }] },
+        { status: 'done', verdict: 'needs_reply' },
+      ],
+    })
+      .populate('customerGroupId', 'name')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const convIds = [...new Set(items.map((it) => String(it.conversationId)))];
+    const convs = await Conversation.find({ _id: { $in: convIds } })
+      .select('status responseStatusOverride lastCustomerMessageAt lastEmployeeMessageAt')
+      .lean();
+    const convById = new Map(convs.map((c) => [String(c._id), c]));
+
+    // One entry per conversation; needs_reply outranks queued.
+    const byConv = new Map<string, { item: (typeof items)[number]; triageStatus: 'queued' | 'needs_reply' }>();
+    for (const it of items) {
+      const c = convById.get(String(it.conversationId));
+      const waiting =
+        c &&
+        c.status === 'open' &&
+        c.responseStatusOverride !== 'normal' &&
+        c.lastCustomerMessageAt &&
+        (!c.lastEmployeeMessageAt || c.lastCustomerMessageAt > c.lastEmployeeMessageAt) &&
+        c.lastCustomerMessageAt.getTime() === new Date(it.lastMessageAtSnapshot).getTime();
+      if (!waiting) continue;
+      const triageStatus = it.status === 'done' ? 'needs_reply' : 'queued';
+      const cur = byConv.get(String(it.conversationId));
+      if (!cur || (cur.triageStatus === 'queued' && triageStatus === 'needs_reply')) {
+        byConv.set(String(it.conversationId), { item: it, triageStatus });
+      }
+    }
+
+    const entries = [...byConv.values()];
+    const data = await Promise.all(
+      entries.map(async ({ item, triageStatus }) => {
+        const messages = await loadConversationMessages(item.conversationId);
+        return {
+          _id: item._id,
+          conversationId: item.conversationId,
+          customerGroupId: item.customerGroupId,
+          lineGroupId: item.lineGroupId,
+          triageStatus,
+          status: item.status,
+          enqueueReason: item.enqueueReason,
+          enqueuedBy: item.enqueuedBy,
+          claimedBy: item.claimedBy,
+          attempts: item.attempts,
+          verdictReason: item.verdictReason,
+          confidence: item.confidence,
+          lastMessageAtSnapshot: item.lastMessageAtSnapshot,
+          createdAt: item.createdAt,
+          completedAt: item.completedAt,
+          snapshotMessages: messages.map((m) => ({
+            senderType: m.senderType,
+            senderDisplayName: m.senderDisplayName,
+            messageType: m.messageType,
+            ...(m.textContent ? { textContent: m.textContent } : {}),
+            timestamp: m.timestamp,
+          })),
+        };
+      })
+    );
+
+    res.json({
+      counts: {
+        queued: entries.filter((e) => e.triageStatus === 'queued').length,
+        needs_reply: entries.filter((e) => e.triageStatus === 'needs_reply').length,
+      },
+      data,
+    });
+  } catch (err) {
+    console.error('[autoResolveAdminRoutes] GET /queue error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 autoResolveAdminRoutes.get('/logs', async (req: Request, res: Response) => {
   try {
     const {

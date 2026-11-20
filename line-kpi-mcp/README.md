@@ -37,6 +37,10 @@ npm run worker:layer1
 CI builds `ghcr.io/smlsoft/smllinecrm-worker:latest` from this folder. The `worker` service in the
 repo-root `docker-compose.yml` runs it next to the backend (`SMLLINECRM_API_URL=http://backend:3001`,
 `SMLLINECRM_API_KEY` = the backend's `API_KEY`). It runs `node dist/worker/run-layer1.js --loop`.
+In loop mode it also listens on `TRIGGER_PORT` (default 3005, docker network only): `POST /run` starts a
+pass in the background (or joins the running one) and returns 202; `GET /status` reports `running` and the
+last summary. Both need `X-API-Key`. The backend calls them for the refresh button when `LAYER1_WORKER_URL`
+is set (e.g. `http://worker:3005`).
 
 ## Run MCP Server (stdio)
 ```bash

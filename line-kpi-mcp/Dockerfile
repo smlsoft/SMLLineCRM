@@ -14,4 +14,5 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 USER node
 # Layer 1 worker: checks urgent rooms every POLL_INTERVAL_SEC (default 1800 s).
+EXPOSE 3005
 CMD ["node", "dist/worker/run-layer1.js", "--loop"]

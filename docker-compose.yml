@@ -14,6 +14,7 @@ services:
       - CRON_CLOSE_CONVERSATIONS=0 22 * * *
       - CRON_DAILY_EVALUATION=0 23 * * *
       - EVALUATE_PREVIOUS_DAY=true
+      - LAYER1_WORKER_URL=http://worker:3005   # refresh button = check now (worker trigger, internal only)
     restart: unless-stopped
 
   admin:
@@ -40,6 +41,7 @@ services:
       - URGENT_ONLY=true
       - ENQUEUE_LAYER2=true
       - MIN_IDLE_MINUTES=2
+      - TRIGGER_PORT=3005
       - TZ=Asia/Bangkok
     depends_on:
       - backend

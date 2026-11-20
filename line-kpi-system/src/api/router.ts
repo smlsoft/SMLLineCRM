@@ -14,6 +14,7 @@ import { configRoutes } from './routes/configRoutes';
 import { issueCategoryRoutes } from './routes/issueCategoryRoutes';
 import { dailyReportRoutes } from './routes/dailyReportRoutes';
 import { autoResolveAgentRoutes, autoResolveAdminRoutes } from './routes/autoResolveRoutes';
+import { layer1Routes } from './routes/layer1Routes';
 
 const apiRouter = Router();
 
@@ -38,5 +39,6 @@ apiRouter.use('/auto-resolve', autoResolveAgentRoutes);
 apiRouter.use('/admin/users', jwtAuth, adminUserRoutes);
 apiRouter.use('/admin/permission-groups', jwtAuth, permissionGroupRoutes);
 apiRouter.use('/admin/auto-resolve', jwtAuth, autoResolveAdminRoutes);
+apiRouter.use('/admin/layer1', jwtAuth, layer1Routes);
 
 export { apiRouter };

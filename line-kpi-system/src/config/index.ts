@@ -43,4 +43,7 @@ export const config = {
   },
 
   evaluatePreviousDay: optional('EVALUATE_PREVIOUS_DAY', 'true') === 'true',
+
+  /** Internal URL of the Layer 1 worker trigger (e.g. http://worker:3005); empty disables check-now. */
+  layer1WorkerUrl: optional('LAYER1_WORKER_URL', ''),
 } as const;

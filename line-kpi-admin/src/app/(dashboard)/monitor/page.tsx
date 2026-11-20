@@ -7,6 +7,7 @@ import { formatMs, formatDateTime, cn } from '@/lib/utils';
 import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2, Bot, ClipboardCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
+import { Layer1CheckBanner, useLayer1Check } from '@/components/Layer1Check';
 
 const REFRESH_INTERVAL = 30;
 
@@ -151,10 +152,13 @@ export default function MonitorPage() {
     return () => clearInterval(id);
   }, [loadData, loadEmployees]);
 
+  // Refresh = run the Layer 1 check now in the background (same as /auto-resolve), then reload.
+  const layer1Check = useLayer1Check(() => loadData());
   const handleManualRefresh = () => {
     setCountdown(REFRESH_INTERVAL);
     loadData();
     loadEmployees();
+    layer1Check.trigger();
   };
 
   const urgentCount = groups.filter((g) => g.priorityStatus === 'urgent').length;
@@ -189,12 +193,15 @@ export default function MonitorPage() {
         </div>
         <button
           onClick={handleManualRefresh}
-          className="inline-flex items-center gap-1.5 bg-surface-container border border-surface-container-high text-on-surface px-4 py-2 rounded-xl text-sm font-bold hover:bg-surface-container-high transition-colors"
+          disabled={layer1Check.checking}
+          className="inline-flex items-center gap-1.5 bg-surface-container border border-surface-container-high text-on-surface px-4 py-2 rounded-xl text-sm font-bold hover:bg-surface-container-high transition-colors disabled:opacity-50"
         >
-          <RefreshCw className="size-4" />
-          รีเฟรช ({countdown}s)
+          <RefreshCw className={cn('size-4', layer1Check.checking && 'animate-spin')} />
+          {layer1Check.checking ? 'กำลังตรวจ…' : `รีเฟรช (${countdown}s)`}
         </button>
       </div>
+
+      <Layer1CheckBanner message={layer1Check.message} onClose={layer1Check.clearMessage} />
 
       {/* Tab switcher */}
       <div className="flex gap-2">

@@ -2,16 +2,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { autoResolveApi } from '@/lib/api';
+import { Layer1CheckBanner, useLayer1Check } from '@/components/Layer1Check';
 import type {
   AutoResolveCounts,
   AutoResolveLayer,
   AutoResolveLog,
   AutoResolveMode,
   AutoResolveStatus,
+  TriageQueueEntry,
 } from '@/types/api';
 import { cn, formatDateTime } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
 import { ChatSnapshot } from './ChatSnapshot';
+import { AiQueueList } from './AiQueueList';
 import {
   AlertTriangle,
   Bot,
@@ -29,7 +32,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-type ActiveTab = 'pending_review' | 'all';
+type ActiveTab = 'pending_review' | 'ai_queue' | 'all';
 
 const REFRESH_INTERVAL = 30; // seconds, same as /monitor
 
@@ -106,6 +109,7 @@ export default function AutoResolvePage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [queueEntries, setQueueEntries] = useState<TriageQueueEntry[]>([]);
 
   const [modeBusy, setModeBusy] = useState(false);
   const [confirmAutoOpen, setConfirmAutoOpen] = useState(false);
@@ -119,12 +123,16 @@ export default function AutoResolvePage() {
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await autoResolveApi.listLogs({
-        status: effectiveStatus,
-        layer: layerFilter || undefined,
-        page,
-        limit: 20,
-      });
+      const [res, queue] = await Promise.all([
+        autoResolveApi.listLogs({
+          status: effectiveStatus,
+          layer: layerFilter || undefined,
+          page,
+          limit: 20,
+        }),
+        autoResolveApi.listQueue(),
+      ]);
+      setQueueEntries(queue.data);
       setMode(res.mode);
       setCounts(res.counts);
       setLogs(res.data);
@@ -156,9 +164,12 @@ export default function AutoResolvePage() {
     return () => clearInterval(id);
   }, [loadData]);
 
+  // Refresh = run the Layer 1 check now in the background (same as /monitor), then reload.
+  const layer1Check = useLayer1Check(() => loadData(true));
   const handleManualRefresh = () => {
     setCountdown(REFRESH_INTERVAL);
     loadData();
+    layer1Check.trigger();
   };
 
   const handleTabChange = (tab: ActiveTab) => {
@@ -287,11 +298,11 @@ export default function AutoResolvePage() {
 
           <button
             onClick={handleManualRefresh}
-            disabled={loading}
+            disabled={loading || layer1Check.checking}
             className="inline-flex items-center gap-1.5 bg-surface-container border border-surface-container-high text-on-surface px-4 py-2 rounded-xl text-sm font-bold hover:bg-surface-container-high transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
-            รีเฟรช ({countdown}s)
+            <RefreshCw className={cn('size-4', (loading || layer1Check.checking) && 'animate-spin')} />
+            {layer1Check.checking ? 'กำลังตรวจ…' : `รีเฟรช (${countdown}s)`}
           </button>
         </div>
       </div>
@@ -326,6 +337,8 @@ export default function AutoResolvePage() {
       </div>
 
       {/* Inline Error Banner */}
+      <Layer1CheckBanner message={layer1Check.message} onClose={layer1Check.clearMessage} />
+
       {errorMsg && (
         <div className="flex items-start justify-between gap-3 bg-error/10 border border-error/20 text-error px-4 py-3 rounded-xl text-sm">
           <div className="flex items-center gap-2 min-w-0">
@@ -357,6 +370,17 @@ export default function AutoResolvePage() {
             รอตรวจสอบ ({counts.pending_review})
           </button>
           <button
+            onClick={() => handleTabChange('ai_queue')}
+            className={cn(
+              'px-4 py-2 rounded-xl text-sm font-bold transition-colors',
+              activeTab === 'ai_queue'
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            )}
+          >
+            รอ AI ตรวจ ({queueEntries.length})
+          </button>
+          <button
             onClick={() => handleTabChange('all')}
             className={cn(
               'px-4 py-2 rounded-xl text-sm font-bold transition-colors',
@@ -369,7 +393,7 @@ export default function AutoResolvePage() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={cn('flex flex-wrap items-center gap-2', activeTab === 'ai_queue' && 'hidden')}>
           {(
             [
               { value: '' as const, label: 'ทุกชั้น' },
@@ -422,6 +446,8 @@ export default function AutoResolvePage() {
             <div key={i} className="h-56 bg-surface-container rounded-3xl animate-pulse" />
           ))}
         </div>
+      ) : activeTab === 'ai_queue' ? (
+        <AiQueueList entries={queueEntries} />
       ) : logs.length === 0 ? (
         <div className="bg-surface-container-lowest border border-surface-container-high/30 rounded-3xl p-12 text-center space-y-2">
           <ClipboardCheck className="size-10 mx-auto text-on-surface-variant/40" />

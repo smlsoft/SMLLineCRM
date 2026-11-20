@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { pathToFileURL } from 'node:url';
 import { SmllineCrmClient, type AutoResolveMode } from '../client.js';
 import { evaluateLayer1, type Layer1RuleCode } from '../rules/layer1.js';
+import { createPassTracker, singleFlight, startTriggerServer } from './trigger.js';
 
 export interface RunLayer1Options {
   minIdleMinutes?: number;
@@ -245,14 +246,21 @@ async function runCli(): Promise<void> {
   const enqueueLayer2 = (process.env.ENQUEUE_LAYER2 ?? 'true').toLowerCase() !== 'false';
   const client = new SmllineCrmClient({ baseUrl, apiKey });
 
+  // One pass at a time: the timer and on-demand triggers share a running pass.
+  const runPass = singleFlight(async () => {
+    const summary = await runLayer1Pass(client, { minIdleMinutes, dryRun, urgentOnly, enqueueLayer2 });
+    console.log(
+      `[Layer1] Done (mode=${summary.mode}, dryRun=${dryRun}): groups=${summary.checkedGroups}, matched=${summary.matchedCount}, proposed=${summary.proposedCount}, skipped=${summary.skippedCount}, needsLayer2=${summary.needsLayer2Count}, queuedLayer2=${summary.enqueuedCount}`
+    );
+    return summary;
+  });
+
   const executeOnce = async () => {
     try {
-      const summary = await runLayer1Pass(client, { minIdleMinutes, dryRun, urgentOnly, enqueueLayer2 });
-      console.log(
-        `[Layer1] Done (mode=${summary.mode}, dryRun=${dryRun}): groups=${summary.checkedGroups}, matched=${summary.matchedCount}, proposed=${summary.proposedCount}, skipped=${summary.skippedCount}, needsLayer2=${summary.needsLayer2Count}, queuedLayer2=${summary.enqueuedCount}`
-      );
+      await runPass();
     } catch (err) {
-      console.error('[Layer1] Error:', err instanceof Error ? err.message : String(err));
+      const cause = err instanceof Error && err.cause instanceof Error ? ` (${err.cause.message})` : '';
+      console.error('[Layer1] Error:', (err instanceof Error ? err.message : String(err)) + cause);
       if (!loop) process.exitCode = 1;
     }
   };
@@ -262,8 +270,19 @@ async function runCli(): Promise<void> {
   if (loop) {
     console.log(`[Layer1] Loop mode enabled — polling every ${pollIntervalSec}s`);
     const timer = setInterval(executeOnce, pollIntervalSec * 1000);
+
+    // On-demand pass for the backend ("check now"); reachable only inside the docker network.
+    const triggerPort = Number(process.env.TRIGGER_PORT ?? '3005') || 3005;
+    const tracker = createPassTracker(async () => {
+      const { items: _items, ...counts } = await runPass();
+      return counts;
+    });
+    const trigger = await startTriggerServer({ port: triggerPort, apiKey, tracker });
+    console.log(`[Layer1] Trigger listening on :${triggerPort} (POST /run, GET /status)`);
+
     const stop = () => {
       clearInterval(timer);
+      trigger.close();
       console.log('[Layer1] Stopping...');
       process.exit(0);
     };
