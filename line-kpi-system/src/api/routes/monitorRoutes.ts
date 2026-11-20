@@ -1,7 +1,83 @@
 import { Router, Request, Response } from 'express';
-import { PipelineStage } from 'mongoose';
+import { PipelineStage, Types } from 'mongoose';
 import { CustomerGroup } from '../../models/CustomerGroup';
 import { Employee } from '../../models/Employee';
+import { TriageQueueItem } from '../../models/TriageQueueItem';
+import { AutoResolveLog } from '../../models/AutoResolveLog';
+
+type TriageStatus = 'queued' | 'needs_reply' | 'resolved_pending_review' | null;
+
+// Group-level precedence: the most actionable state wins.
+const TRIAGE_RANK: Record<Exclude<TriageStatus, null>, number> = {
+  needs_reply: 3,
+  queued: 2,
+  resolved_pending_review: 1,
+};
+
+interface MonitorConvRow {
+  _id: Types.ObjectId;
+  responseStatus: string;
+  lastCustomerMessageAt?: Date | null;
+  triageStatus?: TriageStatus;
+}
+
+interface MonitorGroupRow {
+  conversations: MonitorConvRow[];
+  triageStatus?: TriageStatus;
+}
+
+/**
+ * Adds triageStatus to each pending conversation and its group, using only
+ * queue items / logs for the conversation's current customer-message snapshot.
+ */
+async function attachTriageStatus(groups: MonitorGroupRow[]): Promise<void> {
+  const pending = groups.flatMap((g) =>
+    g.conversations.filter(
+      (c) => (c.responseStatus === 'slow' || c.responseStatus === 'waiting') && c.lastCustomerMessageAt
+    )
+  );
+  const key = (id: Types.ObjectId | string, at: Date) => `${String(id)}|${new Date(at).getTime()}`;
+  const ids = pending.map((c) => c._id);
+
+  const [items, logs] = ids.length
+    ? await Promise.all([
+        TriageQueueItem.find({
+          conversationId: { $in: ids },
+          $or: [{ status: { $in: ['pending', 'claimed'] } }, { status: 'done', verdict: 'needs_reply' }],
+        })
+          .select('conversationId lastMessageAtSnapshot status verdict')
+          .lean(),
+        AutoResolveLog.find({ conversationId: { $in: ids }, status: 'pending_review' })
+          .select('conversationId lastMessageAtSnapshot')
+          .lean(),
+      ])
+    : [[], []];
+
+  const byKey = new Map<string, Exclude<TriageStatus, null>>();
+  const put = (k: string, v: Exclude<TriageStatus, null>) => {
+    const cur = byKey.get(k);
+    if (!cur || TRIAGE_RANK[v] > TRIAGE_RANK[cur]) byKey.set(k, v);
+  };
+  for (const it of items) {
+    put(key(it.conversationId, it.lastMessageAtSnapshot), it.status === 'done' ? 'needs_reply' : 'queued');
+  }
+  for (const lg of logs) {
+    put(key(lg.conversationId, lg.lastMessageAtSnapshot), 'resolved_pending_review');
+  }
+
+  for (const g of groups) {
+    let groupStatus: TriageStatus = null;
+    for (const c of g.conversations) {
+      const st =
+        (c.responseStatus === 'slow' || c.responseStatus === 'waiting') && c.lastCustomerMessageAt
+          ? byKey.get(key(c._id, c.lastCustomerMessageAt)) ?? null
+          : null;
+      c.triageStatus = st;
+      if (st && (!groupStatus || TRIAGE_RANK[st] > TRIAGE_RANK[groupStatus])) groupStatus = st;
+    }
+    g.triageStatus = groupStatus;
+  }
+}
 
 const router = Router();
 
@@ -277,7 +353,8 @@ router.get('/', async (_req: Request, res: Response) => {
     { $unset: ['_sortTier'] },
   ];
 
-  const results = await CustomerGroup.aggregate(pipeline);
+  const results = await CustomerGroup.aggregate<MonitorGroupRow>(pipeline);
+  await attachTriageStatus(results);
   res.json(results);
 });
 

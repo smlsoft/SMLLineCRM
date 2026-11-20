@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { monitorApi, messagesApi, conversationsApi } from '@/lib/api';
-import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message } from '@/types/api';
+import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message, TriageStatus } from '@/types/api';
 import { formatMs, formatDateTime, cn } from '@/lib/utils';
-import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2, Bot } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 
 const REFRESH_INTERVAL = 30;
@@ -31,6 +31,37 @@ const PRIORITY_CONFIG = {
     dot: '🟢',
   },
 } as const;
+
+const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: string; title: string }> = {
+  needs_reply: {
+    cls: 'bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/30',
+    label: 'ยังไม่ได้ตอบ',
+    title: 'AI ตรวจแล้ว: ลูกค้ายังรอคำตอบ',
+  },
+  queued: {
+    cls: 'bg-surface-container text-on-surface-variant',
+    label: 'รอ AI ตรวจ',
+    title: 'อยู่ในคิวให้ AI ตรวจ',
+  },
+  resolved_pending_review: {
+    cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    label: 'AI เสนอปิด',
+    title: 'ระบบเสนอว่าไม่ต้องตอบ รอคนตรวจที่หน้า Auto-resolve',
+  },
+};
+
+function TriageBadge({ status }: { status?: TriageStatus }) {
+  if (!status) return null;
+  const t = TRIAGE_CONFIG[status];
+  return (
+    <span
+      title={t.title}
+      className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wider', t.cls)}
+    >
+      <Bot className="size-3" /> {t.label}
+    </span>
+  );
+}
 
 const RESPONSE_STATUS_CONFIG = {
   slow: { cls: 'text-red-600 dark:text-red-400', label: 'ช้า' },
@@ -584,6 +615,7 @@ function GroupConversationModal({
             <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider mb-1.5', cfg.badgeCls)}>
               {cfg.dot} {cfg.label}
             </span>
+            {group.triageStatus && <span className="ml-1.5 align-top"><TriageBadge status={group.triageStatus} /></span>}
             <h2 className="text-base font-headline font-extrabold text-on-surface truncate">{group.name}</h2>
           </div>
           <button onClick={onClose} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors">
@@ -706,6 +738,7 @@ function MonitorGroupCard({
             >
               {cfg.dot} {cfg.label}
             </span>
+            <TriageBadge status={group.triageStatus} />
             {group.oldestPendingMs != null && (
               <span className="text-xs font-bold text-on-surface-variant">
                 รอ {formatMs(group.oldestPendingMs)}
