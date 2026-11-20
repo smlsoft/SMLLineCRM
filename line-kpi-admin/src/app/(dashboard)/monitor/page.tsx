@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { monitorApi, messagesApi, conversationsApi } from '@/lib/api';
 import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message, TriageStatus } from '@/types/api';
 import { formatMs, formatDateTime, cn } from '@/lib/utils';
-import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2, Bot } from 'lucide-react';
+import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2, Bot, ClipboardCheck } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 
 const REFRESH_INTERVAL = 30;
@@ -32,21 +33,24 @@ const PRIORITY_CONFIG = {
   },
 } as const;
 
-const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: string; title: string }> = {
+const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: string; title: string; icon: LucideIcon }> = {
   needs_reply: {
     cls: 'bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/30',
     label: 'ยังไม่ได้ตอบ',
     title: 'AI ตรวจแล้ว: ลูกค้ายังรอคำตอบ',
+    icon: Bot,
   },
   queued: {
     cls: 'bg-surface-container text-on-surface-variant',
     label: 'รอ AI ตรวจ',
     title: 'อยู่ในคิวให้ AI ตรวจ',
+    icon: Bot,
   },
   resolved_pending_review: {
     cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    label: 'AI เสนอปิด',
-    title: 'ระบบเสนอว่าไม่ต้องตอบ รอคนตรวจที่หน้า Auto-resolve',
+    label: 'เสนอปิด · รอตรวจ',
+    title: 'ระบบเสนอว่าไม่ต้องตอบ (กฎขั้นที่ 1 หรือ AI ขั้นที่ 2) รอคนตรวจที่หน้า Auto-resolve',
+    icon: ClipboardCheck,
   },
 };
 
@@ -58,7 +62,7 @@ function TriageBadge({ status }: { status?: TriageStatus }) {
       title={t.title}
       className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wider', t.cls)}
     >
-      <Bot className="size-3" /> {t.label}
+      <t.icon className="size-3" /> {t.label}
     </span>
   );
 }
