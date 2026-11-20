@@ -10,7 +10,6 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
   req.nextUrl.searchParams.forEach((value, key) => url.searchParams.set(key, value));
 
   const isAuthPath = path.startsWith('auth/');
-  const isAdminPath = path.startsWith('admin/');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -21,8 +20,9 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
     headers['X-API-Key'] = API_KEY;
   }
 
-  // Forward JWT as Authorization header for admin routes
-  if (isAdminPath) {
+  // Forward JWT as Authorization header: admin routes require it; other routes use it only to
+  // record who acted (API key stays the gate).
+  if (!isAuthPath) {
     const authToken = req.cookies.get('auth-token')?.value;
     if (authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;

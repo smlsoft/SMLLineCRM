@@ -4,6 +4,17 @@ import { config } from '../../config';
 import type { JwtPayload } from '../../types/auth';
 import type { PermissionKey } from '../../models/PermissionGroup';
 
+/** Returns the logged-in admin from an optional Bearer token, or null. Never rejects the request. */
+export function readOptionalAdmin(req: Request): JwtPayload | null {
+  const token = (req.headers['authorization'] ?? '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    return jwt.verify(token, config.jwtSecret) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
 export function jwtAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers['authorization'] ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '');

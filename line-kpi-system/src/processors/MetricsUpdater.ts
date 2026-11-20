@@ -61,21 +61,22 @@ export class MetricsUpdater {
 
     await Conversation.updateOne({ _id: conversationId }, updateOp);
 
-    if (senderType === 'customer') {
-      await AutoResolveLog.updateMany(
-        {
-          conversationId,
-          status: 'pending_review',
-          lastMessageAtSnapshot: { $lt: timestamp },
+    // A pending proposal is about an older snapshot: a new customer message makes it stale,
+    // a staff reply makes it unnecessary.
+    await AutoResolveLog.updateMany(
+      {
+        conversationId,
+        status: 'pending_review',
+        lastMessageAtSnapshot: { $lt: timestamp },
+      },
+      {
+        $set: {
+          status: 'expired',
+          expiredReason:
+            senderType === 'customer' ? 'ลูกค้าส่งข้อความใหม่เข้ามาหลังระบบประเมิน' : 'พนักงานตอบแล้ว',
         },
-        {
-          $set: {
-            status: 'expired',
-            expiredReason: 'ลูกค้าส่งข้อความใหม่เข้ามาหลังระบบประเมิน',
-          },
-        }
-      );
-    }
+      }
+    );
 
     // Open Layer 2 queue items are about an older snapshot: a new customer message
     // makes them stale, an employee reply makes them unnecessary.
