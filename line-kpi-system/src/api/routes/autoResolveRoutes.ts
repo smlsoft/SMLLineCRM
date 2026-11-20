@@ -317,6 +317,23 @@ autoResolveAgentRoutes.post('/queue', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/v1/auto-resolve/queue/count → 200 { pending }
+// Number of items POST /queue/claim could take right now (same filter), without leasing one.
+// An agent host polls this to wake the Layer 2 agent only when there is work. Read-only: stale
+// rooms are expired by claim, so a count may include an item claim then drops.
+autoResolveAgentRoutes.get('/queue/count', async (_req: Request, res: Response) => {
+  try {
+    const pending = await TriageQueueItem.countDocuments({
+      attempts: { $lt: TRIAGE_MAX_ATTEMPTS },
+      $or: [{ status: 'pending' }, { status: 'claimed', leaseUntil: { $lt: new Date() } }],
+    });
+    res.json({ pending });
+  } catch (err) {
+    console.error('[autoResolveAgentRoutes] GET /queue/count error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/v1/auto-resolve/queue/claim
 // Body: { agentId, leaseSeconds? } → 200 { item, conversation, messages } | 204
 autoResolveAgentRoutes.post('/queue/claim', async (req: Request, res: Response) => {
