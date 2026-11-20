@@ -216,6 +216,22 @@ export const configApi = {
 };
 
 // ---- Auto-Resolve Review & Log ----
+// ---- Layer 1 "check now" (refresh button on /monitor and /auto-resolve) ----
+export const layer1Api = {
+  /** Starts a background pass (or joins the running one); returns at once. */
+  checkNow: () =>
+    apiFetch<{ ok: boolean; started: boolean; status: import('@/types/api').Layer1CheckStatus }>(
+      `${P}/admin/layer1/check-now`,
+      { method: 'POST' }
+    ),
+  status: () => apiFetch<import('@/types/api').Layer1CheckStatus>(`${P}/admin/layer1/status`),
+};
+
+/** One-line Thai summary of a Layer 1 pass for the refresh banner. */
+export function formatLayer1Summary(s: import('@/types/api').Layer1CheckSummary): string {
+  return `ตรวจแล้ว ${s.checkedGroups} กลุ่ม · เสนอปิด ${s.proposedCount} · ส่งให้ AI ${s.enqueuedCount}`;
+}
+
 export const autoResolveApi = {
   listLogs: (params?: {
     status?: import('@/types/api').AutoResolveStatus | 'all';
@@ -243,6 +259,8 @@ export const autoResolveApi = {
     apiFetch<{ ok: boolean; log: import('@/types/api').AutoResolveLog }>(`${P}/admin/auto-resolve/logs/${id}/revert`, {
       method: 'POST',
     }),
+  listQueue: () =>
+    apiFetch<import('@/types/api').TriageQueueResponse>(`${P}/admin/auto-resolve/queue`),
   setMode: (mode: import('@/types/api').AutoResolveMode) =>
     apiFetch<{ ok: boolean; mode: import('@/types/api').AutoResolveMode }>(`${P}/admin/auto-resolve/mode`, {
       method: 'PATCH',

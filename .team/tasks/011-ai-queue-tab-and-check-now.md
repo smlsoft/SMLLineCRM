@@ -1,0 +1,12 @@
+# Task 011: AI-queue tab on Auto-Resolve and refresh runs the Layer 1 check now
+
+GOAL: `/auto-resolve` lists the same "รอ AI ตรวจ" / "ยังไม่ได้ตอบ" rooms that `/monitor` badges, and the refresh button on both pages runs one Layer 1 pass immediately (no 30-minute wait) before reloading, showing a short summary.
+MODE: do
+FILES: line-kpi-mcp/src/worker/ line-kpi-mcp/test/ line-kpi-mcp/Dockerfile line-kpi-mcp/README.md line-kpi-system/src/config/index.ts line-kpi-system/src/api/router.ts line-kpi-system/src/api/routes/autoResolveRoutes.ts line-kpi-system/src/api/routes/layer1Routes.ts line-kpi-admin/src/lib/api.ts line-kpi-admin/src/types/api.ts line-kpi-admin/src/app/(dashboard)/auto-resolve/ line-kpi-admin/src/app/(dashboard)/monitor/ line-kpi-admin/src/components/Layer1Check.tsx docker-compose.yml
+DONE-WHEN: (cd line-kpi-mcp && npx tsc --noEmit && npm test) passes; (cd line-kpi-system && npx tsc --noEmit) && (cd line-kpi-admin && npx tsc --noEmit && npm run lint) exit 0 with no new warnings; against a LOCAL MongoDB with the worker in loop mode and the backend's `LAYER1_WORKER_URL` pointing at it: pressing refresh on `/monitor` and on `/auto-resolve` runs a pass (worker logs `[Layer1] Done` at that moment, page shows the summary), two concurrent triggers produce one pass, and the "รอ AI ตรวจ" tab lists exactly the conversations `/monitor` badges `queued` / `needs_reply`
+## Notes
+- User decisions: refresh = "check now"; the 30 s auto refresh only reloads data; the worker keeps its own 30-minute loop. Rooms waiting under 15 minutes are still not checked (urgent-only).
+- Worker: in `--loop` mode listen on `TRIGGER_PORT` (default 3005) inside the docker network only (no published port); `POST /run` requires `X-API-Key` = `SMLLINECRM_API_KEY`; a trigger during a running pass waits for that pass and returns its summary.
+- Backend: `POST /api/v1/admin/layer1/check-now` (JWT; superadmin or permission `monitor` or `auto-resolve`) calls `${LAYER1_WORKER_URL}/run`; 503 with a clear Thai message if `LAYER1_WORKER_URL` is unset or the worker is unreachable. `GET /api/v1/admin/auto-resolve/queue` lists queue items with the same filter and snapshot match as `attachTriageStatus` (`line-kpi-system/src/api/routes/monitorRoutes.ts:33`), with group name and the conversation's last messages.
+- Labels say "AI" / "Layer 2", never an agent product name.
+- Not touched: `.env`, `.env.local`, `dist/`, `.next/`; no new page, no new permission key.

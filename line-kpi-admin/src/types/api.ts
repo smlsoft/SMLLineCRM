@@ -344,6 +344,49 @@ export interface AutoResolveSnapshotMessage {
   timestamp: string;
 }
 
+export interface TriageQueueEntry {
+  _id: string;
+  conversationId: string;
+  customerGroupId: string | { _id: string; name: string };
+  lineGroupId: string;
+  triageStatus: 'queued' | 'needs_reply';
+  status: 'pending' | 'claimed' | 'done';
+  enqueueReason?: string;
+  enqueuedBy?: string;
+  claimedBy?: string;
+  attempts: number;
+  verdictReason?: string;
+  confidence?: number;
+  lastMessageAtSnapshot: string;
+  createdAt: string;
+  completedAt?: string;
+  snapshotMessages: AutoResolveSnapshotMessage[];
+}
+
+export interface TriageQueueResponse {
+  counts: { queued: number; needs_reply: number };
+  data: TriageQueueEntry[];
+}
+
+export interface Layer1CheckSummary {
+  mode: AutoResolveMode;
+  checkedGroups: number;
+  checkedConversations: number;
+  matchedCount: number;
+  proposedCount: number;
+  skippedCount: number;
+  needsLayer2Count: number;
+  enqueuedCount: number;
+}
+
+export interface Layer1CheckStatus {
+  running: boolean;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastSummary: Layer1CheckSummary | null;
+  lastError: string | null;
+}
+
 export interface AutoResolveLog {
   _id: string;
   conversationId: string;
