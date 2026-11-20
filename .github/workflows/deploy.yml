@@ -8,6 +8,7 @@ env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/smlsoft/smllinecrm-backend
   ADMIN_IMAGE: ghcr.io/smlsoft/smllinecrm-admin
+  WORKER_IMAGE: ghcr.io/smlsoft/smllinecrm-worker
 
 jobs:
   build-and-push:
@@ -40,3 +41,10 @@ jobs:
           context: ./line-kpi-admin
           push: true
           tags: ${{ env.ADMIN_IMAGE }}:latest
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./line-kpi-mcp
+          push: true
+          tags: ${{ env.WORKER_IMAGE }}:latest
