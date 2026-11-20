@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { ReactNode } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { autoResolveApi } from '@/lib/api';
 import type {
   AutoResolveCounts,
@@ -12,6 +11,7 @@ import type {
 } from '@/types/api';
 import { cn, formatDateTime } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
+import { ChatSnapshot } from './ChatSnapshot';
 import {
   AlertTriangle,
   Bot,
@@ -87,20 +87,6 @@ function getGroupName(log: AutoResolveLog): string {
     return log.customerGroupId.name;
   }
   return log.lineGroupId;
-}
-
-/** Scrollable box that opens at its newest (bottom) content; scrolls again only when scrollKey changes. */
-function ScrollToBottomBox({ scrollKey, className, children }: { scrollKey: string; className?: string; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [scrollKey]);
-  return (
-    <div ref={ref} className={className}>
-      {children}
-    </div>
-  );
 }
 
 export default function AutoResolvePage() {
@@ -401,7 +387,7 @@ export default function AutoResolvePage() {
 
       {/* Content */}
       {loading ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-56 bg-surface-container rounded-3xl animate-pulse" />
           ))}
@@ -422,7 +408,7 @@ export default function AutoResolvePage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
             {logs.map((log) => {
               const statusCfg = STATUS_CONFIG[log.status];
               const isBusy = !!actionBusy[log._id];
@@ -485,41 +471,10 @@ export default function AutoResolvePage() {
 
                     {/* Chat Snapshot */}
                     {log.snapshotMessages && log.snapshotMessages.length > 0 && (
-                      <ScrollToBottomBox
+                      <ChatSnapshot
                         scrollKey={`${log._id}-${log.snapshotMessages.length}`}
-                        className="bg-surface-container/60 border border-surface-container-high/30 rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto"
-                      >
-                        {log.snapshotMessages.map((msg, idx) => {
-                          const isEmployee = msg.senderType === 'employee';
-                          return (
-                            <div
-                              key={`${log._id}-msg-${idx}`}
-                              className={cn(
-                                'flex flex-col gap-0.5',
-                                isEmployee ? 'items-end' : 'items-start'
-                              )}
-                            >
-                              <span className="text-[10px] text-on-surface-variant px-1">
-                                {msg.senderDisplayName} · {formatDateTime(msg.timestamp)}
-                              </span>
-                              <div
-                                className={cn(
-                                  'max-w-[85%] px-3 py-1.5 rounded-xl text-xs break-words',
-                                  isEmployee
-                                    ? 'bg-primary text-on-primary'
-                                    : 'bg-surface-container-lowest border border-surface-container-high/40 text-on-surface'
-                                )}
-                              >
-                                {msg.textContent ? (
-                                  msg.textContent
-                                ) : (
-                                  <span className="italic opacity-75">[{msg.messageType}]</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </ScrollToBottomBox>
+                        messages={log.snapshotMessages}
+                      />
                     )}
                   </div>
 
