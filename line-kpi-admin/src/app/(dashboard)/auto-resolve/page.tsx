@@ -31,6 +31,8 @@ import {
 
 type ActiveTab = 'pending_review' | 'all';
 
+const REFRESH_INTERVAL = 30; // seconds, same as /monitor
+
 const EMPTY_COUNTS: AutoResolveCounts = {
   pending_review: 0,
   approved: 0,
@@ -102,6 +104,8 @@ export default function AutoResolvePage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   const [modeBusy, setModeBusy] = useState(false);
   const [confirmAutoOpen, setConfirmAutoOpen] = useState(false);
@@ -111,8 +115,9 @@ export default function AutoResolvePage() {
   const effectiveStatus: AutoResolveStatus | 'all' =
     activeTab === 'pending_review' ? 'pending_review' : statusFilter;
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // silent: background refresh, keeps the current cards on screen (no loading skeleton).
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await autoResolveApi.listLogs({
         status: effectiveStatus,
@@ -125,16 +130,36 @@ export default function AutoResolvePage() {
       setLogs(res.data);
       setTotal(res.total);
       setTotalPages(res.totalPages);
+      setLastRefreshed(new Date());
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'โหลดข้อมูลไม่สำเร็จ');
+      if (!silent) setErrorMsg(err instanceof Error ? err.message : 'โหลดข้อมูลไม่สำเร็จ');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [effectiveStatus, layerFilter, page]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Same cadence and countdown as /monitor, so a Resolved there or a staff reply shows here within 30 s.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          loadData(true);
+          return REFRESH_INTERVAL;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [loadData]);
+
+  const handleManualRefresh = () => {
+    setCountdown(REFRESH_INTERVAL);
+    loadData();
+  };
 
   const handleTabChange = (tab: ActiveTab) => {
     setActiveTab(tab);
@@ -220,6 +245,11 @@ export default function AutoResolvePage() {
           <p className="text-xs text-on-surface-variant mt-1">
             ตรวจความแม่นยำของการปิดงานจากระบบภายนอก ก่อนสลับเป็นโหมดปิดอัตโนมัติ
           </p>
+          <p className="text-[11px] text-on-surface-variant mt-0.5">
+            {lastRefreshed
+              ? `อัปเดตล่าสุด ${formatDateTime(lastRefreshed.toISOString())} · รีเฟรชอัตโนมัติใน ${countdown}s`
+              : 'กำลังโหลด...'}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -256,12 +286,12 @@ export default function AutoResolvePage() {
           </div>
 
           <button
-            onClick={() => loadData()}
+            onClick={handleManualRefresh}
             disabled={loading}
             className="inline-flex items-center gap-1.5 bg-surface-container border border-surface-container-high text-on-surface px-4 py-2 rounded-xl text-sm font-bold hover:bg-surface-container-high transition-colors disabled:opacity-50"
           >
             <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
-            รีเฟรช
+            รีเฟรช ({countdown}s)
           </button>
         </div>
       </div>
@@ -560,7 +590,7 @@ export default function AutoResolvePage() {
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-[11px] text-on-surface-variant">
                           {log.status === 'approved'
-                            ? `อนุมัติโดย @${log.reviewedBy ?? '-'}${log.reviewedAt ? ` · ${formatDateTime(log.reviewedAt)}` : ''}`
+                            ? `อนุมัติโดย @${log.reviewedBy ?? '-'}${log.reviewedAt ? ` · ${formatDateTime(log.reviewedAt)}` : ''}${log.reviewNote ? ` · ${log.reviewNote}` : ''}`
                             : 'ปิดงานอัตโนมัติตามโหมด Auto'}
                         </span>
                         <button

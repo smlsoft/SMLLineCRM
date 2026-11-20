@@ -1,5 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { Conversation } from '../../models/Conversation';
+import { AutoResolveLog } from '../../models/AutoResolveLog';
+import { TriageQueueItem } from '../../models/TriageQueueItem';
+import { readOptionalAdmin } from '../middleware/jwtAuth';
+
+const MONITOR_NOTE = 'ยืนยันจากหน้า Monitor';
 
 const router = Router();
 
@@ -200,6 +205,29 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (!conv) {
     res.status(404).json({ error: 'Not found' });
     return;
+  }
+
+  // Keep auto-resolve in step with a manual decision on Monitor. Only proposals about the
+  // current customer message count (same rule as the approve route).
+  const who = readOptionalAdmin(req)?.username ?? 'monitor';
+  const now = new Date();
+  const current = conv.lastCustomerMessageAt
+    ? { lastMessageAtSnapshot: { $gte: conv.lastCustomerMessageAt } }
+    : {};
+  if (responseStatusOverride === 'normal') {
+    await AutoResolveLog.updateMany(
+      { conversationId: conv._id, status: 'pending_review', ...current },
+      { $set: { status: 'approved', reviewedBy: who, reviewedAt: now, reviewNote: MONITOR_NOTE } }
+    );
+    await TriageQueueItem.updateMany(
+      { conversationId: conv._id, status: { $in: ['pending', 'claimed'] } },
+      { $set: { status: 'expired', expiredReason: 'ปิดจากหน้า Monitor' }, $unset: { leaseUntil: 1 } }
+    );
+  } else {
+    await AutoResolveLog.updateMany(
+      { conversationId: conv._id, status: { $in: ['approved', 'auto_resolved'] }, ...current },
+      { $set: { status: 'reverted', revertedBy: who, revertedAt: now } }
+    );
   }
 
   res.json({ ok: true });
