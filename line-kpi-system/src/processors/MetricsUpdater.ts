@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Conversation } from '../models/Conversation';
 import { AutoResolveLog } from '../models/AutoResolveLog';
+import { TriageQueueItem } from '../models/TriageQueueItem';
 import { SenderType } from '../models/Message';
 
 interface UpdateParams {
@@ -75,6 +76,26 @@ export class MetricsUpdater {
         }
       );
     }
+
+    // Open Layer 2 queue items are about an older snapshot: a new customer message
+    // makes them stale, an employee reply makes them unnecessary.
+    await TriageQueueItem.updateMany(
+      {
+        conversationId,
+        status: { $in: ['pending', 'claimed'] },
+        lastMessageAtSnapshot: { $lt: timestamp },
+      },
+      {
+        $set: {
+          status: 'expired',
+          expiredReason:
+            senderType === 'customer'
+              ? 'ลูกค้าส่งข้อความใหม่เข้ามาหลังเข้าคิว'
+              : 'พนักงานตอบแล้ว',
+        },
+        $unset: { leaseUntil: 1 },
+      }
+    );
 
     // Update rolling avgResponseMs and maxResponseMs separately to keep atomic op clean
     if (responseGapMs !== undefined && senderType === 'employee') {

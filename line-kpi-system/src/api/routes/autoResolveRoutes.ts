@@ -7,6 +7,8 @@ import {
   IAutoResolveSnapshotMessage,
 } from '../../models/AutoResolveLog';
 import { Conversation } from '../../models/Conversation';
+import { Message } from '../../models/Message';
+import { TriageQueueItem, TRIAGE_MAX_ATTEMPTS } from '../../models/TriageQueueItem';
 import { AutoResolveMode } from '../../models/SystemConfig';
 import { configService } from '../../services/ConfigService';
 import { requirePermission } from '../middleware/jwtAuth';
@@ -66,53 +68,209 @@ autoResolveAgentRoutes.get('/mode', async (_req: Request, res: Response) => {
   }
 });
 
+// ── Shared proposal logic (used by /propose and by /queue/:id/complete) ──────
+
+interface ProposalInput {
+  conversationId?: unknown;
+  layer?: unknown;
+  ruleCode?: unknown;
+  reason?: unknown;
+  confidence?: unknown;
+  lastMessageAtSnapshot?: unknown;
+  snapshotMessages?: unknown;
+  proposedBy?: unknown;
+}
+
+interface ProposalResult {
+  httpStatus: number;
+  body: Record<string, unknown>;
+}
+
+function parseIsoDate(raw: unknown): Date | null {
+  if (typeof raw !== 'string' && !(raw instanceof Date)) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function clampConfidence(raw: unknown): number | undefined {
+  return typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : undefined;
+}
+
+function shortString(raw: unknown, max: number): string | undefined {
+  return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, max) : undefined;
+}
+
+/**
+ * Validates a resolve proposal against the live conversation and writes the
+ * AutoResolveLog (pending_review in review mode; auto_resolved + override in auto mode).
+ */
+async function submitProposal(input: ProposalInput): Promise<ProposalResult> {
+  const conversationId = typeof input.conversationId === 'string' ? input.conversationId : '';
+  if (!conversationId || !Types.ObjectId.isValid(conversationId)) {
+    return { httpStatus: 400, body: { error: 'Valid conversationId is required' } };
+  }
+
+  if (typeof input.layer !== 'string' || !VALID_LAYERS.includes(input.layer as AutoResolveLayer)) {
+    return { httpStatus: 400, body: { error: 'layer must be "rule" or "ai"' } };
+  }
+  const layer = input.layer as AutoResolveLayer;
+
+  const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+  if (!reason) {
+    return { httpStatus: 400, body: { error: 'reason is required' } };
+  }
+
+  const snapshotDate = parseIsoDate(input.lastMessageAtSnapshot);
+  if (!snapshotDate) {
+    return { httpStatus: 400, body: { error: 'lastMessageAtSnapshot must be a valid ISO date' } };
+  }
+
+  const conv = await Conversation.findById(conversationId).lean();
+  if (!conv) {
+    return { httpStatus: 404, body: { error: 'Conversation not found' } };
+  }
+
+  if (conv.status !== 'open' || conv.responseStatusOverride === 'normal') {
+    return { httpStatus: 200, body: { ok: true, skipped: 'already_resolved' } };
+  }
+
+  if (
+    !conv.lastCustomerMessageAt ||
+    (conv.lastEmployeeMessageAt && conv.lastCustomerMessageAt <= conv.lastEmployeeMessageAt)
+  ) {
+    return { httpStatus: 200, body: { ok: true, skipped: 'employee_already_replied' } };
+  }
+
+  if (conv.lastCustomerMessageAt.getTime() > snapshotDate.getTime()) {
+    return { httpStatus: 200, body: { ok: true, skipped: 'stale_snapshot' } };
+  }
+
+  // Prevent duplicate entries for the exact same customer message snapshot
+  // (including rejected/reverted so the worker does not re-propose until a new customer message arrives).
+  const existing = await AutoResolveLog.findOne({
+    conversationId: conv._id,
+    lastMessageAtSnapshot: snapshotDate,
+    status: { $in: ['pending_review', 'approved', 'auto_resolved', 'rejected', 'reverted'] },
+  }).lean();
+
+  if (existing) {
+    return {
+      httpStatus: 200,
+      body: {
+        ok: true,
+        skipped: 'duplicate',
+        existingStatus: existing.status,
+        logId: String(existing._id),
+      },
+    };
+  }
+
+  const snapshotMessages = sanitizeSnapshotMessages(input.snapshotMessages, snapshotDate);
+  const cfg = await configService.getConfig();
+  const mode: AutoResolveMode = cfg.autoResolve?.mode ?? 'review';
+
+  const ruleCode = shortString(input.ruleCode, 64);
+  const confidence = clampConfidence(input.confidence);
+  const proposedBy = shortString(input.proposedBy, 64) ?? 'smllinecrm-mcp';
+
+  const baseLog = {
+    conversationId: conv._id,
+    customerGroupId: conv.customerGroupId,
+    lineGroupId: conv.lineGroupId,
+    layer,
+    ruleCode,
+    reason: reason.slice(0, 500),
+    confidence,
+    lastMessageAtSnapshot: snapshotDate,
+    snapshotMessages,
+    proposedBy,
+  };
+
+  if (mode === 'auto') {
+    // Atomic staleness guard before marking conversation normal
+    const updatedConv = await Conversation.findOneAndUpdate(
+      {
+        _id: conv._id,
+        status: 'open',
+        $or: [
+          { lastCustomerMessageAt: { $lte: snapshotDate } },
+          { lastCustomerMessageAt: null },
+        ],
+      },
+      { $set: { responseStatusOverride: 'normal' } },
+      { new: true }
+    ).lean();
+
+    if (!updatedConv) {
+      return { httpStatus: 200, body: { ok: true, skipped: 'stale_snapshot' } };
+    }
+
+    const log = await AutoResolveLog.create({ ...baseLog, status: 'auto_resolved' });
+    return { httpStatus: 201, body: { ok: true, mode: 'auto', status: 'auto_resolved', log } };
+  }
+
+  const log = await AutoResolveLog.create({ ...baseLog, status: 'pending_review' });
+  return { httpStatus: 201, body: { ok: true, mode: 'review', status: 'pending_review', log } };
+}
+
 // POST /api/v1/auto-resolve/propose
 autoResolveAgentRoutes.post('/propose', async (req: Request, res: Response) => {
   try {
-    const body = req.body as {
-      conversationId?: string;
-      layer?: string;
-      ruleCode?: string;
-      reason?: string;
-      confidence?: number;
-      lastMessageAtSnapshot?: string;
-      snapshotMessages?: unknown;
-      proposedBy?: string;
-    };
+    const result = await submitProposal((req.body ?? {}) as ProposalInput);
+    res.status(result.httpStatus).json(result.body);
+  } catch (err) {
+    console.error('[autoResolveAgentRoutes] POST /propose error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    if (!body.conversationId || !Types.ObjectId.isValid(body.conversationId)) {
+// ── Layer 2 triage queue (Layer 1 worker enqueues, external AI agent claims) ──
+
+const DEFAULT_LEASE_SECONDS = 300;
+const MAX_LEASE_SECONDS = 1800;
+const CLAIM_MESSAGE_LIMIT = 30;
+
+function agentIdFrom(raw: unknown): string | null {
+  return shortString(raw, 64) ?? null;
+}
+
+/** Messages for the agent: newest CLAIM_MESSAGE_LIMIT, oldest first, no media payload. */
+async function loadConversationMessages(conversationId: Types.ObjectId) {
+  const rows = await Message.find({ conversationId })
+    .select('senderType senderDisplayName employeeId messageType textContent timestamp mediaId')
+    .populate('employeeId', 'name employeeCode')
+    .populate('mediaId', 'url mimeType')
+    .sort({ timestamp: -1 })
+    .limit(CLAIM_MESSAGE_LIMIT)
+    .lean();
+  return rows.reverse();
+}
+
+// POST /api/v1/auto-resolve/queue
+// Body: { conversationId, lastMessageAtSnapshot, reason?, enqueuedBy? }
+autoResolveAgentRoutes.post('/queue', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const conversationId = typeof body.conversationId === 'string' ? body.conversationId : '';
+    if (!conversationId || !Types.ObjectId.isValid(conversationId)) {
       res.status(400).json({ error: 'Valid conversationId is required' });
       return;
     }
-
-    if (!body.layer || !VALID_LAYERS.includes(body.layer as AutoResolveLayer)) {
-      res.status(400).json({ error: 'layer must be "rule" or "ai"' });
-      return;
-    }
-
-    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
-    if (!reason) {
-      res.status(400).json({ error: 'reason is required' });
-      return;
-    }
-
-    const snapshotDate = body.lastMessageAtSnapshot ? new Date(body.lastMessageAtSnapshot) : null;
-    if (!snapshotDate || Number.isNaN(snapshotDate.getTime())) {
+    const snapshotDate = parseIsoDate(body.lastMessageAtSnapshot);
+    if (!snapshotDate) {
       res.status(400).json({ error: 'lastMessageAtSnapshot must be a valid ISO date' });
       return;
     }
 
-    const conv = await Conversation.findById(body.conversationId).lean();
+    const conv = await Conversation.findById(conversationId).lean();
     if (!conv) {
       res.status(404).json({ error: 'Conversation not found' });
       return;
     }
-
     if (conv.status !== 'open' || conv.responseStatusOverride === 'normal') {
       res.json({ ok: true, skipped: 'already_resolved' });
       return;
     }
-
     if (
       !conv.lastCustomerMessageAt ||
       (conv.lastEmployeeMessageAt && conv.lastCustomerMessageAt <= conv.lastEmployeeMessageAt)
@@ -120,99 +278,286 @@ autoResolveAgentRoutes.post('/propose', async (req: Request, res: Response) => {
       res.json({ ok: true, skipped: 'employee_already_replied' });
       return;
     }
-
     if (conv.lastCustomerMessageAt.getTime() > snapshotDate.getTime()) {
       res.json({ ok: true, skipped: 'stale_snapshot' });
       return;
     }
 
-    // Prevent duplicate entries for the exact same customer message snapshot
-    // (including rejected/reverted so the worker does not re-propose until a new customer message arrives).
-    const existing = await AutoResolveLog.findOne({
-      conversationId: conv._id,
-      lastMessageAtSnapshot: snapshotDate,
-      status: { $in: ['pending_review', 'approved', 'auto_resolved', 'rejected', 'reverted'] },
-    }).lean();
-
-    if (existing) {
-      res.json({
-        ok: true,
-        skipped: 'duplicate',
-        existingStatus: existing.status,
-        logId: String(existing._id),
-      });
-      return;
-    }
-
-    const snapshotMessages = sanitizeSnapshotMessages(body.snapshotMessages, snapshotDate);
-    const cfg = await configService.getConfig();
-    const mode: AutoResolveMode = cfg.autoResolve?.mode ?? 'review';
-
-    const ruleCode = typeof body.ruleCode === 'string' && body.ruleCode.trim() ? body.ruleCode.trim().slice(0, 64) : undefined;
-    const confidence =
-      typeof body.confidence === 'number' && Number.isFinite(body.confidence)
-        ? Math.max(0, Math.min(1, body.confidence))
-        : undefined;
-    const proposedBy =
-      typeof body.proposedBy === 'string' && body.proposedBy.trim()
-        ? body.proposedBy.trim().slice(0, 64)
-        : 'smllinecrm-mcp';
-
-    if (mode === 'auto') {
-      // Atomic staleness guard before marking conversation normal
-      const updatedConv = await Conversation.findOneAndUpdate(
-        {
-          _id: conv._id,
-          status: 'open',
-          $or: [
-            { lastCustomerMessageAt: { $lte: snapshotDate } },
-            { lastCustomerMessageAt: null },
-          ],
-        },
-        { $set: { responseStatusOverride: 'normal' } },
-        { new: true }
-      ).lean();
-
-      if (!updatedConv) {
-        res.json({ ok: true, skipped: 'stale_snapshot' });
-        return;
-      }
-
-      const log = await AutoResolveLog.create({
+    try {
+      const item = await TriageQueueItem.create({
         conversationId: conv._id,
         customerGroupId: conv.customerGroupId,
         lineGroupId: conv.lineGroupId,
-        layer: body.layer as AutoResolveLayer,
-        ruleCode,
-        reason: reason.slice(0, 500),
-        confidence,
-        status: 'auto_resolved',
         lastMessageAtSnapshot: snapshotDate,
-        snapshotMessages,
-        proposedBy,
+        enqueueReason: shortString(body.reason, 500),
+        enqueuedBy: shortString(body.enqueuedBy, 64) ?? 'smllinecrm-mcp',
       });
+      res.status(201).json({ ok: true, item });
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) {
+        const existing = await TriageQueueItem.findOne({
+          conversationId: conv._id,
+          lastMessageAtSnapshot: snapshotDate,
+        }).lean();
+        res.json({
+          ok: true,
+          skipped: 'duplicate',
+          existingStatus: existing?.status,
+          itemId: existing ? String(existing._id) : undefined,
+        });
+        return;
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('[autoResolveAgentRoutes] POST /queue error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-      res.status(201).json({ ok: true, mode: 'auto', status: 'auto_resolved', log });
+// POST /api/v1/auto-resolve/queue/claim
+// Body: { agentId, leaseSeconds? } → 200 { item, conversation, messages } | 204
+autoResolveAgentRoutes.post('/queue/claim', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const agentId = agentIdFrom(body.agentId);
+    if (!agentId) {
+      res.status(400).json({ error: 'agentId is required' });
+      return;
+    }
+    const leaseSeconds =
+      typeof body.leaseSeconds === 'number' && Number.isFinite(body.leaseSeconds)
+        ? Math.min(Math.max(Math.round(body.leaseSeconds), 30), MAX_LEASE_SECONDS)
+        : DEFAULT_LEASE_SECONDS;
+
+    // Items whose lease ran out after their last allowed attempt are given up on.
+    await TriageQueueItem.updateMany(
+      { status: 'claimed', leaseUntil: { $lt: new Date() }, attempts: { $gte: TRIAGE_MAX_ATTEMPTS } },
+      { $set: { status: 'failed', lastError: 'lease expired on last attempt' }, $unset: { leaseUntil: 1 } }
+    );
+
+    // Loop so an item whose conversation went stale is expired and the next one is tried.
+    for (let i = 0; i < 20; i++) {
+      const now = new Date();
+      const item = await TriageQueueItem.findOneAndUpdate(
+        {
+          attempts: { $lt: TRIAGE_MAX_ATTEMPTS },
+          $or: [
+            { status: 'pending' },
+            { status: 'claimed', leaseUntil: { $lt: now } },
+          ],
+        },
+        {
+          $inc: { attempts: 1 },
+          $set: {
+            status: 'claimed',
+            claimedBy: agentId,
+            claimedAt: now,
+            leaseUntil: new Date(now.getTime() + leaseSeconds * 1000),
+          },
+        },
+        { sort: { createdAt: 1 }, new: true }
+      );
+
+      if (!item) {
+        res.status(204).end();
+        return;
+      }
+
+      const conv = await Conversation.findById(item.conversationId).lean();
+      const staleReason = !conv
+        ? 'บทสนทนาไม่พบแล้ว'
+        : conv.status !== 'open' || conv.responseStatusOverride === 'normal'
+          ? 'บทสนทนาถูกปิดหรือแก้สถานะแล้ว'
+          : !conv.lastCustomerMessageAt ||
+              (conv.lastEmployeeMessageAt && conv.lastCustomerMessageAt <= conv.lastEmployeeMessageAt)
+            ? 'พนักงานตอบแล้ว'
+            : conv.lastCustomerMessageAt.getTime() > item.lastMessageAtSnapshot.getTime()
+              ? 'ลูกค้าส่งข้อความใหม่เข้ามาหลังเข้าคิว'
+              : null;
+
+      if (staleReason || !conv) {
+        await TriageQueueItem.updateOne(
+          { _id: item._id, status: 'claimed', claimedBy: agentId },
+          { $set: { status: 'expired', expiredReason: staleReason ?? 'บทสนทนาไม่พบแล้ว' }, $unset: { leaseUntil: 1 } }
+        );
+        continue;
+      }
+
+      const messages = await loadConversationMessages(conv._id);
+      res.json({
+        item,
+        conversation: {
+          _id: conv._id,
+          customerGroupId: conv.customerGroupId,
+          lineGroupId: conv.lineGroupId,
+          status: conv.status,
+          lastCustomerMessageAt: conv.lastCustomerMessageAt,
+          lastEmployeeMessageAt: conv.lastEmployeeMessageAt,
+          lastMessageAt: conv.lastMessageAt,
+        },
+        messages,
+      });
       return;
     }
 
-    const log = await AutoResolveLog.create({
-      conversationId: conv._id,
-      customerGroupId: conv.customerGroupId,
-      lineGroupId: conv.lineGroupId,
-      layer: body.layer as AutoResolveLayer,
-      ruleCode,
-      reason: reason.slice(0, 500),
+    res.status(204).end();
+  } catch (err) {
+    console.error('[autoResolveAgentRoutes] POST /queue/claim error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+async function findHeldItem(id: string, agentId: string) {
+  return TriageQueueItem.findOne({
+    _id: id,
+    status: 'claimed',
+    claimedBy: agentId,
+    leaseUntil: { $gte: new Date() },
+  });
+}
+
+// POST /api/v1/auto-resolve/queue/:id/complete
+// Body: { agentId, verdict: "resolved" | "needs_reply", reason, confidence?, snapshotMessages? }
+autoResolveAgentRoutes.post('/queue/:id/complete', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: 'Invalid queue item id' });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const agentId = agentIdFrom(body.agentId);
+    if (!agentId) {
+      res.status(400).json({ error: 'agentId is required' });
+      return;
+    }
+    const verdict = body.verdict;
+    if (verdict !== 'resolved' && verdict !== 'needs_reply') {
+      res.status(400).json({ error: 'verdict must be "resolved" or "needs_reply"' });
+      return;
+    }
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!reason) {
+      res.status(400).json({ error: 'reason is required' });
+      return;
+    }
+
+    const item = await findHeldItem(id, agentId);
+    if (!item) {
+      res.status(409).json({ error: 'Lease lost, item expired, or item not claimed by this agent' });
+      return;
+    }
+
+    const confidence = clampConfidence(body.confidence);
+
+    if (verdict === 'needs_reply') {
+      const updated = await TriageQueueItem.findOneAndUpdate(
+        { _id: item._id, status: 'claimed', claimedBy: agentId },
+        {
+          $set: {
+            status: 'done',
+            verdict,
+            verdictReason: reason.slice(0, 500),
+            confidence,
+            completedAt: new Date(),
+          },
+          $unset: { leaseUntil: 1 },
+        },
+        { new: true }
+      );
+      if (!updated) {
+        res.status(409).json({ error: 'Item changed while completing' });
+        return;
+      }
+      res.json({ ok: true, verdict, item: updated });
+      return;
+    }
+
+    const proposal = await submitProposal({
+      conversationId: String(item.conversationId),
+      layer: 'ai',
+      ruleCode: 'layer2_ai',
+      reason,
       confidence,
-      status: 'pending_review',
-      lastMessageAtSnapshot: snapshotDate,
-      snapshotMessages,
-      proposedBy,
+      lastMessageAtSnapshot: item.lastMessageAtSnapshot.toISOString(),
+      snapshotMessages: body.snapshotMessages,
+      proposedBy: agentId,
     });
 
-    res.status(201).json({ ok: true, mode: 'review', status: 'pending_review', log });
+    if (proposal.httpStatus >= 400) {
+      res.status(proposal.httpStatus).json(proposal.body);
+      return;
+    }
+
+    const skipped = typeof proposal.body.skipped === 'string' ? proposal.body.skipped : undefined;
+    const createdLog = proposal.body.log as { _id?: Types.ObjectId } | undefined;
+    const logId = createdLog?._id ?? (typeof proposal.body.logId === 'string' ? proposal.body.logId : undefined);
+
+    const set: Record<string, unknown> =
+      skipped && skipped !== 'duplicate'
+        ? { status: 'expired', expiredReason: `proposal skipped: ${skipped}` }
+        : {
+            status: 'done',
+            verdict,
+            verdictReason: reason.slice(0, 500),
+            confidence,
+            completedAt: new Date(),
+            ...(logId ? { autoResolveLogId: logId } : {}),
+          };
+
+    const updated = await TriageQueueItem.findOneAndUpdate(
+      { _id: item._id, status: 'claimed', claimedBy: agentId },
+      { $set: set, $unset: { leaseUntil: 1 } },
+      { new: true }
+    );
+
+    res.status(proposal.httpStatus).json({ ...proposal.body, verdict, item: updated });
   } catch (err) {
-    console.error('[autoResolveAgentRoutes] POST /propose error:', err);
+    console.error('[autoResolveAgentRoutes] POST /queue/:id/complete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/v1/auto-resolve/queue/:id/release
+// Body: { agentId, error } — gives the item back; after TRIAGE_MAX_ATTEMPTS it is marked failed.
+autoResolveAgentRoutes.post('/queue/:id/release', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: 'Invalid queue item id' });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const agentId = agentIdFrom(body.agentId);
+    if (!agentId) {
+      res.status(400).json({ error: 'agentId is required' });
+      return;
+    }
+
+    const item = await findHeldItem(id, agentId);
+    if (!item) {
+      res.status(409).json({ error: 'Lease lost, item expired, or item not claimed by this agent' });
+      return;
+    }
+
+    // attempts was already counted when the item was claimed.
+    const attempts = item.attempts;
+    const updated = await TriageQueueItem.findOneAndUpdate(
+      { _id: item._id, status: 'claimed', claimedBy: agentId },
+      {
+        $set: {
+          status: attempts >= TRIAGE_MAX_ATTEMPTS ? 'failed' : 'pending',
+          lastError: shortString(body.error, 1000) ?? 'released without error message',
+        },
+        $unset: { leaseUntil: 1, claimedBy: 1, claimedAt: 1 },
+      },
+      { new: true }
+    );
+
+    res.json({ ok: true, item: updated });
+  } catch (err) {
+    console.error('[autoResolveAgentRoutes] POST /queue/:id/release error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
