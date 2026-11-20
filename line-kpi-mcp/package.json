@@ -1,0 +1,27 @@
+{
+  "name": "line-kpi-mcp",
+  "version": "0.1.0",
+  "description": "MCP server and Layer-1 auto-resolve worker for SMLLineCRM",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "check:layer1": "tsx src/worker/run-layer1.ts",
+    "worker:layer1": "tsx src/worker/run-layer1.ts --loop",
+    "start:worker": "node dist/worker/run-layer1.js --loop",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

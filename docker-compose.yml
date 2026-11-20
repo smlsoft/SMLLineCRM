@@ -28,3 +28,19 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  # Layer 1 worker (line-kpi-mcp): every 30 minutes checks urgent rooms, closes the ones a rule
+  # matches and queues the rest for the external Layer 2 AI agent. No AI, no ports.
+  worker:
+    image: ghcr.io/smlsoft/smllinecrm-worker:latest
+    environment:
+      - SMLLINECRM_API_URL=http://backend:3001
+      - SMLLINECRM_API_KEY=your-api-key-here   # ต้องตรงกับ API_KEY ของ backend
+      - POLL_INTERVAL_SEC=1800
+      - URGENT_ONLY=true
+      - ENQUEUE_LAYER2=true
+      - MIN_IDLE_MINUTES=2
+      - TZ=Asia/Bangkok
+    depends_on:
+      - backend
+    restart: unless-stopped
