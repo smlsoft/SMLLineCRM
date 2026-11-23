@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { employeesApi } from '@/lib/api';
 import type { Employee } from '@/types/api';
@@ -36,9 +36,12 @@ export function AssistantLoginDialog({
   const [savedPassword, setSavedPassword] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [revealNote, setRevealNote] = useState('');
+  // Bumped on every open, close and switch; a reveal that resolves in another "session" is dropped.
+  const openSeq = useRef(0);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    openSeq.current += 1;
     if (!employee) {
       // Closed: forget any revealed or typed password right away.
       setPassword('');
@@ -64,14 +67,17 @@ export function AssistantLoginDialog({
     if (showPassword) { setShowPassword(false); return; }
     setShowPassword(true);
     if (!employee || !hasPassword || password || savedPassword !== null) return;
+    const forId = employee._id;
+    const seq = openSeq.current;
     setRevealing(true);
     setRevealNote('');
     try {
-      const res = await employeesApi.getAssistantPassword(employee._id);
+      const res = await employeesApi.getAssistantPassword(forId);
+      if (openSeq.current !== seq) return; // dialog closed or moved on: never keep the password
       setSavedPassword(res.password);
       setPassword(res.password);
     } catch (err) {
-      setRevealNote(err instanceof Error ? err.message : 'ดูรหัสผ่านไม่สำเร็จ');
+      if (openSeq.current === seq) setRevealNote(err instanceof Error ? err.message : 'ดูรหัสผ่านไม่สำเร็จ');
     } finally {
       setRevealing(false);
     }

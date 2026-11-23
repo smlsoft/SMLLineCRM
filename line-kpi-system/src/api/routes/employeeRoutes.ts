@@ -131,14 +131,18 @@ router.get('/:id/assistant-login/password', async (req: Request, res: Response) 
   if (!Types.ObjectId.isValid(employeeId)) { res.status(400).json({ error: 'Invalid id' }); return; }
 
   const token = readOptionalAdmin(req);
-  const user = token ? await AdminUser.findById(token.sub) : null;
+  // A signed token is trusted only to name an AdminUser id: anything but an ObjectId string (an object
+  // would become a query operator, a bad string a CastError) is treated as no account.
+  const sub: unknown = token?.sub;
+  const subId = typeof sub === 'string' && Types.ObjectId.isValid(sub) ? sub : null;
+  const user = subId ? await AdminUser.findById(subId) : null;
   const log = (outcome: AssistantPasswordViewOutcome, employeeName?: string) =>
     AssistantPasswordView.create({
       employeeId,
       employeeName,
       outcome,
-      adminId: user ? String(user._id) : token?.sub,
-      viewedBy: user?.username ?? token?.username,
+      adminId: user ? String(user._id) : subId ?? undefined,
+      viewedBy: user?.username ?? (typeof token?.username === 'string' ? token.username : undefined),
       ip: req.ip,
       viewedAt: new Date(),
     });
