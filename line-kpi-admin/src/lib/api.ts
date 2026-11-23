@@ -102,6 +102,8 @@ export const employeesApi = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  removeAssistantLogin: (id: string) =>
+    apiFetch<import('@/types/api').Employee>(`${P}/employees/${id}/assistant-login`, { method: 'DELETE' }),
 };
 
 // ---- Issue Category Master ----
