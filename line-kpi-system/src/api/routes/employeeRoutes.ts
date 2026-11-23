@@ -110,6 +110,22 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
   res.json(out);
 });
 
+// DELETE /api/v1/employees/:id/assistant-login
+// Removes the AI assistant login (username, password, switch). The employee record stays and the
+// username becomes free for another employee.
+router.delete('/:id/assistant-login', async (req: Request, res: Response) => {
+  const emp = await Employee.findByIdAndUpdate(
+    req.params.id,
+    {
+      $unset: { assistantUsername: 1, assistantPasswordHash: 1, assistantPasswordSetAt: 1 },
+      $set: { assistantLoginEnabled: false },
+    },
+    { new: true }
+  );
+  if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json(emp);
+});
+
 const EDITABLE_FIELDS = ['lineUserId', 'name', 'employeeCode', 'department', 'assignedGroupIds', 'isActive'] as const;
 
 // PUT /api/v1/employees/:id

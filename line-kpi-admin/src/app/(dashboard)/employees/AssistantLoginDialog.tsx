@@ -29,6 +29,7 @@ export function AssistantLoginDialog({
   const [password, setPassword] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -40,6 +41,23 @@ export function AssistantLoginDialog({
   }, [employee]);
 
   const hasPassword = !!employee?.assistantPasswordSetAt;
+  const hasLogin = !!employee?.assistantUsername || hasPassword;
+
+  const handleRemove = async () => {
+    if (!employee) return;
+    if (!window.confirm(`ลบชื่อผู้ใช้และรหัสผ่านแอปผู้ช่วยของ ${employee.name}?\nพนักงานคนนี้จะเข้าแอปผู้ช่วยไม่ได้จนกว่าจะตั้งใหม่`)) return;
+    setError('');
+    setRemoving(true);
+    try {
+      await employeesApi.removeAssistantLogin(employee._id);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ลบไม่สำเร็จ');
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,7 +139,18 @@ export function AssistantLoginDialog({
 
           {error && <p className="text-xs text-error">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex items-center justify-end gap-2 pt-2">
+            {hasLogin && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleRemove}
+                disabled={saving || removing}
+                className="mr-auto rounded-xl text-error hover:bg-error/10 transition-colors"
+              >
+                {removing ? 'กำลังลบ...' : 'ลบชื่อผู้ใช้/รหัสผ่าน'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -132,7 +161,7 @@ export function AssistantLoginDialog({
             </Button>
             <Button
               type="submit"
-              disabled={saving}
+              disabled={saving || removing}
               className="bg-primary text-on-primary rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-95"
             >
               {saving ? 'กำลังบันทึก...' : 'บันทึก'}
