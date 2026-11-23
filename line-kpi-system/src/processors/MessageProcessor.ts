@@ -7,6 +7,7 @@ import { MetricsUpdater } from './MetricsUpdater';
 import { Message, MessageType } from '../models/Message';
 import { Conversation } from '../models/Conversation';
 import { fetchAndStoreImage } from '../services/ImageFetchService';
+import { publishMessage } from '../services/MessageStream';
 
 export interface IncomingMessage {
   lineMessageId: string;
@@ -112,13 +113,21 @@ export class MessageProcessor {
       throw err;
     }
 
+    // 5a. Live stream for the assistant app (no-op when nobody watches this group).
+    publishMessage('message', savedMsg._id as Types.ObjectId, customerGroupId);
+
     // 5b. Fire-and-forget: ดึงรูปและเก็บใน MessageMedia collection (best-effort)
     if (messageType === 'image') {
       fetchAndStoreImage({
         messageDocId: savedMsg._id as Types.ObjectId,
         lineMessageId,
         oaAccessToken,
-      }).catch(() => {}); // catch ป้องกัน UnhandledPromiseRejection (fetchAndStoreImage catch ภายในอยู่แล้ว)
+      })
+        .then((stored) => {
+          // The image arrives after the message: send it again with its media.
+          if (stored) publishMessage('message_update', savedMsg._id as Types.ObjectId, customerGroupId);
+        })
+        .catch(() => {}); // catch ป้องกัน UnhandledPromiseRejection (fetchAndStoreImage catch ภายในอยู่แล้ว)
     }
 
     // 6. Update conversation metrics atomically

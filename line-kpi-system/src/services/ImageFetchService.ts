@@ -11,12 +11,13 @@ import { configService } from './ConfigService';
  * แล้วเขียน mediaId กลับไปใน Message document
  *
  * Best-effort: ถ้า error ใดๆ เกิดขึ้น จะ log warning แล้วจบ ไม่ throw
+ * Returns true only when the Message now points at stored media.
  */
 export async function fetchAndStoreImage(params: {
   messageDocId: Types.ObjectId;
   lineMessageId: string;
   oaAccessToken: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const { messageDocId, lineMessageId, oaAccessToken } = params;
 
   try {
@@ -26,7 +27,7 @@ export async function fetchAndStoreImage(params: {
 
     if (storage === 'none') {
       // ไม่เก็บรูปเลย — ข้ามได้เลย
-      return;
+      return false;
     }
 
     // 1. สร้าง BlobClient สำหรับดึง binary content
@@ -78,7 +79,7 @@ export async function fetchAndStoreImage(params: {
       if (isMongoUniqueError(createErr)) {
         // LINE retry ส่งซ้ำ — ดึง doc ที่มีอยู่แล้ว
         const existing = await MessageMedia.findOne({ lineMessageId }).select('_id').lean();
-        if (!existing) return;
+        if (!existing) return false;
         mediaDoc = existing as { _id: Types.ObjectId };
       } else {
         throw createErr;
@@ -94,9 +95,11 @@ export async function fetchAndStoreImage(params: {
     console.info(
       `[ImageFetchService] Stored media for message ${lineMessageId} (${sizeBytes} bytes, ${mimeType}, storage=${storage})`
     );
+    return true;
   } catch (err) {
     // ไม่ throw — message ถูก save แล้ว image เป็น best-effort
     console.warn(`[ImageFetchService] Failed to fetch/store image for ${lineMessageId}:`, err);
+    return false;
   }
 }
 
