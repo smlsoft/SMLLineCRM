@@ -1,4 +1,5 @@
 import './config'; // load dotenv first
+import './api/asyncErrors'; // async route errors reach the error handler instead of killing the process
 import express, { Request, Response, NextFunction } from 'express';
 import { connectDatabase } from './config/database';
 import { masterIdCache } from './services/MasterIdCache';
@@ -44,9 +45,25 @@ app.use((_req: Request, res: Response) => {
 });
 
 // Global error handler
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  // A malformed id or value in the request (Mongoose cast failure) is the caller's mistake.
+  if (err.name === 'CastError') {
+    console.warn(`[App] Bad request ${req.method} ${req.originalUrl}: ${err.message}`);
+    res.status(400).json({ error: 'Invalid id or value in request' });
+    return;
+  }
   console.error('[App] Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
+});
+
+// Last-resort guard: a promise rejected outside a request (e.g. fire-and-forget work) is logged,
+// not allowed to end the process.
+process.on('unhandledRejection', (reason) => {
+  console.error('[App] Unhandled promise rejection:', reason);
 });
 
 async function bootstrap(): Promise<void> {
