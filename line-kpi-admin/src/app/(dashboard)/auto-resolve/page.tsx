@@ -15,9 +15,10 @@ import { cn, formatDateTime } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
 import { ChatSnapshot } from './ChatSnapshot';
 import { AiQueueList } from './AiQueueList';
+import { LogHistoryList } from './LogHistoryList';
+import { LayerBadge, LogOutcome, STATUS_CONFIG, StatusBadge, getGroupName } from './logParts';
 import {
   AlertTriangle,
-  Bot,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -26,7 +27,6 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
-  ShieldCheck,
   X,
   XCircle,
   Zap,
@@ -44,55 +44,6 @@ const EMPTY_COUNTS: AutoResolveCounts = {
   reverted: 0,
   expired: 0,
 };
-
-const STATUS_CONFIG: Record<
-  AutoResolveStatus,
-  { label: string; dot: string; badgeCls: string; borderCls: string }
-> = {
-  pending_review: {
-    label: 'รอตรวจสอบ',
-    dot: '🟡',
-    badgeCls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    borderCls: 'border-l-amber-400',
-  },
-  approved: {
-    label: 'อนุมัติแล้ว',
-    dot: '🟢',
-    badgeCls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    borderCls: 'border-l-emerald-500',
-  },
-  auto_resolved: {
-    label: 'ปิดอัตโนมัติ',
-    dot: '⚡',
-    badgeCls: 'bg-primary/10 text-primary',
-    borderCls: 'border-l-primary',
-  },
-  rejected: {
-    label: 'ปฏิเสธ (Logic พลาด)',
-    dot: '🔴',
-    badgeCls: 'bg-red-500/10 text-red-600 dark:text-red-400',
-    borderCls: 'border-l-red-500',
-  },
-  reverted: {
-    label: 'ยกเลิกย้อนหลัง',
-    dot: '↩️',
-    badgeCls: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-    borderCls: 'border-l-orange-400',
-  },
-  expired: {
-    label: 'หมดอายุ (มีข้อความใหม่)',
-    dot: '⚫',
-    badgeCls: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400',
-    borderCls: 'border-l-zinc-400',
-  },
-};
-
-function getGroupName(log: AutoResolveLog): string {
-  if (typeof log.customerGroupId === 'object' && log.customerGroupId !== null) {
-    return log.customerGroupId.name;
-  }
-  return log.lineGroupId;
-}
 
 export default function AutoResolvePage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('pending_review');
@@ -170,6 +121,108 @@ export default function AutoResolvePage() {
     setCountdown(REFRESH_INTERVAL);
     loadData();
     layer1Check.trigger();
+  };
+
+  // Footer of a log: confirm/reject while pending, revert after a close, otherwise who/when/why.
+  // Shared by the pending-review cards and the history popup.
+  const renderActions = (log: AutoResolveLog) => {
+    const isBusy = !!actionBusy[log._id];
+    const rejectState = rejectDrafts[log._id];
+    return (
+      <>
+        {log.status === 'pending_review' && (
+          <>
+            {rejectState?.open ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={rejectState.note}
+                  onChange={(e) =>
+                    setRejectDrafts((prev) => ({
+                      ...prev,
+                      [log._id]: { open: true, note: e.target.value },
+                    }))
+                  }
+                  placeholder="ระบุเหตุผลที่ logic พลาด (ไม่บังคับ)"
+                  className="w-full px-3 py-1.5 rounded-xl border border-surface-container-high bg-surface-container text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() =>
+                      setRejectDrafts((prev) => {
+                        const next = { ...prev };
+                        delete next[log._id];
+                        return next;
+                      })
+                    }
+                    disabled={isBusy}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-surface-container transition-colors"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={() => handleRejectConfirm(log._id)}
+                    disabled={isBusy}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-error text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {isBusy ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <XCircle className="size-3.5" />
+                    )}
+                    ยืนยันปฏิเสธ
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() =>
+                    setRejectDrafts((prev) => ({
+                      ...prev,
+                      [log._id]: { open: true, note: '' },
+                    }))
+                  }
+                  disabled={isBusy}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-error hover:bg-error/10 transition-colors disabled:opacity-50"
+                >
+                  <XCircle className="size-3.5" />
+                  ปฏิเสธ
+                </button>
+                <button
+                  onClick={() => handleApprove(log._id)}
+                  disabled={isBusy}
+                  className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-primary text-on-primary hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {isBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="size-3.5" />
+                  )}
+                  ยืนยัน (Resolved)
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {log.status !== 'pending_review' && (
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <LogOutcome log={log} />
+            {(log.status === 'approved' || log.status === 'auto_resolved') && (
+              <button
+                onClick={() => handleRevert(log._id)}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors disabled:opacity-50"
+              >
+                {isBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                ยกเลิก Resolved
+              </button>
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   const handleTabChange = (tab: ActiveTab) => {
@@ -464,205 +517,65 @@ export default function AutoResolvePage() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
-            {logs.map((log) => {
-              const statusCfg = STATUS_CONFIG[log.status];
-              const isBusy = !!actionBusy[log._id];
-              const rejectState = rejectDrafts[log._id];
+          {activeTab === 'all' ? (
+            <LogHistoryList logs={logs} renderActions={renderActions} />
+          ) : (
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
+              {logs.map((log) => {
+                const statusCfg = STATUS_CONFIG[log.status];
 
-              return (
-                <div
-                  key={log._id}
-                  className={cn(
-                    'bg-surface-container-lowest border border-surface-container-high/30 border-l-4 rounded-3xl shadow-sm p-4 md:p-5 flex flex-col justify-between gap-3',
-                    statusCfg.borderCls
-                  )}
-                >
-                  <div className="space-y-3 min-w-0">
-                    {/* Card Header */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-1.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider',
-                              statusCfg.badgeCls
-                            )}
-                          >
-                            {statusCfg.dot} {statusCfg.label}
-                          </span>
+                return (
+                  <div
+                    key={log._id}
+                    className={cn(
+                      'bg-surface-container-lowest border border-surface-container-high/30 border-l-4 rounded-3xl shadow-sm p-4 md:p-5 flex flex-col justify-between gap-3',
+                      statusCfg.borderCls
+                    )}
+                  >
+                    <div className="space-y-3 min-w-0">
+                      {/* Card Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <StatusBadge status={log.status} />
+                            <LayerBadge log={log} />
+                          </div>
 
-                          {log.layer === 'rule' ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                              <ShieldCheck className="size-3" />
-                              ชั้นที่ 1 · Rule{log.ruleCode ? ` (${log.ruleCode})` : ''}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                              <Bot className="size-3" />
-                              ชั้นที่ 2 · AI
-                              {typeof log.confidence === 'number'
-                                ? ` ${Math.round(log.confidence * 100)}%`
-                                : ''}
-                            </span>
-                          )}
+                          <h2 className="text-base font-headline font-extrabold text-on-surface truncate">
+                            {getGroupName(log)}
+                          </h2>
                         </div>
 
-                        <h2 className="text-base font-headline font-extrabold text-on-surface truncate">
-                          {getGroupName(log)}
-                        </h2>
+                        <div className="text-right flex-shrink-0 text-[10px] text-on-surface-variant space-y-0.5">
+                          <p>{formatDateTime(log.createdAt)}</p>
+                          <p className="font-mono opacity-75">{log.proposedBy}</p>
+                        </div>
                       </div>
 
-                      <div className="text-right flex-shrink-0 text-[10px] text-on-surface-variant space-y-0.5">
-                        <p>{formatDateTime(log.createdAt)}</p>
-                        <p className="font-mono opacity-75">{log.proposedBy}</p>
+                      {/* Reason Banner */}
+                      <div className="bg-surface-container px-3 py-2 rounded-xl text-xs text-on-surface break-words">
+                        <span className="font-bold text-on-surface-variant mr-1.5">เหตุผล:</span>
+                        {log.reason}
                       </div>
+
+                      {/* Chat Snapshot */}
+                      {log.snapshotMessages && log.snapshotMessages.length > 0 && (
+                        <ChatSnapshot
+                          scrollKey={`${log._id}-${log.snapshotMessages.length}`}
+                          messages={log.snapshotMessages}
+                        />
+                      )}
                     </div>
 
-                    {/* Reason Banner */}
-                    <div className="bg-surface-container px-3 py-2 rounded-xl text-xs text-on-surface break-words">
-                      <span className="font-bold text-on-surface-variant mr-1.5">เหตุผล:</span>
-                      {log.reason}
+                    {/* Action / Audit Footer */}
+                    <div className="pt-2 border-t border-surface-container-high/30 space-y-2">
+                      {renderActions(log)}
                     </div>
-
-                    {/* Chat Snapshot */}
-                    {log.snapshotMessages && log.snapshotMessages.length > 0 && (
-                      <ChatSnapshot
-                        scrollKey={`${log._id}-${log.snapshotMessages.length}`}
-                        messages={log.snapshotMessages}
-                      />
-                    )}
                   </div>
-
-                  {/* Action / Audit Footer */}
-                  <div className="pt-2 border-t border-surface-container-high/30 space-y-2">
-                    {log.status === 'pending_review' && (
-                      <>
-                        {rejectState?.open ? (
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              value={rejectState.note}
-                              onChange={(e) =>
-                                setRejectDrafts((prev) => ({
-                                  ...prev,
-                                  [log._id]: { open: true, note: e.target.value },
-                                }))
-                              }
-                              placeholder="ระบุเหตุผลที่ logic พลาด (ไม่บังคับ)"
-                              className="w-full px-3 py-1.5 rounded-xl border border-surface-container-high bg-surface-container text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-                            />
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() =>
-                                  setRejectDrafts((prev) => {
-                                    const next = { ...prev };
-                                    delete next[log._id];
-                                    return next;
-                                  })
-                                }
-                                disabled={isBusy}
-                                className="px-3 py-1.5 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-surface-container transition-colors"
-                              >
-                                ยกเลิก
-                              </button>
-                              <button
-                                onClick={() => handleRejectConfirm(log._id)}
-                                disabled={isBusy}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-error text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                              >
-                                {isBusy ? (
-                                  <Loader2 className="size-3.5 animate-spin" />
-                                ) : (
-                                  <XCircle className="size-3.5" />
-                                )}
-                                ยืนยันปฏิเสธ
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() =>
-                                setRejectDrafts((prev) => ({
-                                  ...prev,
-                                  [log._id]: { open: true, note: '' },
-                                }))
-                              }
-                              disabled={isBusy}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-error hover:bg-error/10 transition-colors disabled:opacity-50"
-                            >
-                              <XCircle className="size-3.5" />
-                              ปฏิเสธ
-                            </button>
-                            <button
-                              onClick={() => handleApprove(log._id)}
-                              disabled={isBusy}
-                              className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-primary text-on-primary hover:opacity-90 transition-opacity disabled:opacity-50"
-                            >
-                              {isBusy ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="size-3.5" />
-                              )}
-                              ยืนยัน (Resolved)
-                            </button>
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {(log.status === 'approved' || log.status === 'auto_resolved') && (
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="text-[11px] text-on-surface-variant">
-                          {log.status === 'approved'
-                            ? `อนุมัติโดย @${log.reviewedBy ?? '-'}${log.reviewedAt ? ` · ${formatDateTime(log.reviewedAt)}` : ''}${log.reviewNote ? ` · ${log.reviewNote}` : ''}`
-                            : 'ปิดงานอัตโนมัติตามโหมด Auto'}
-                        </span>
-                        <button
-                          onClick={() => handleRevert(log._id)}
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors disabled:opacity-50"
-                        >
-                          {isBusy ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <RotateCcw className="size-3.5" />
-                          )}
-                          ยกเลิก Resolved
-                        </button>
-                      </div>
-                    )}
-
-                    {log.status === 'rejected' && (
-                      <div className="text-[11px] text-on-surface-variant space-y-0.5 break-words">
-                        <p>
-                          ปฏิเสธโดย @{log.reviewedBy ?? '-'}
-                          {log.reviewedAt ? ` · ${formatDateTime(log.reviewedAt)}` : ''}
-                        </p>
-                        {log.reviewNote && (
-                          <p className="text-error">หมายเหตุ: {log.reviewNote}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {log.status === 'reverted' && (
-                      <p className="text-[11px] text-on-surface-variant">
-                        ยกเลิก Resolved โดย @{log.revertedBy ?? '-'}
-                        {log.revertedAt ? ` · ${formatDateTime(log.revertedAt)}` : ''}
-                      </p>
-                    )}
-
-                    {log.status === 'expired' && (
-                      <p className="text-[11px] text-on-surface-variant break-words">
-                        {log.expiredReason ?? 'หมดอายุเนื่องจากมีข้อมูลอัปเดตใหม่'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
