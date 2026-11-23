@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
-import { Message } from '../../models/Message';
+import { loadMessageItems } from '../../services/MessageStream';
 
 const router = Router();
 
@@ -42,9 +42,7 @@ router.get('/', async (req: Request, res: Response) => {
     filter.timestamp = { $lt: beforeDate };
   }
 
-  const messages = await Message.find(filter)
-    .populate('employeeId', 'name employeeCode')
-    .populate('mediaId', 'data url mimeType')
+  const messages = await loadMessageItems(filter)
     .sort({ timestamp: -1 }) // newest first for efficient pagination
     .limit(limit)
     .lean();
