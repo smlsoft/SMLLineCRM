@@ -2,6 +2,9 @@ import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { Employee } from '../../models/Employee';
+import { AssistantPasswordView } from '../../models/AssistantPasswordView';
+import { readOptionalAdmin } from '../middleware/jwtAuth';
+import { canStoreViewablePassword, decryptPassword, encryptPassword } from '../../services/assistantPasswordCrypto';
 import { masterIdCache } from '../../services/MasterIdCache';
 import { reclassifyEmployeeMessages } from '../../services/EmployeeReclassifier';
 
@@ -84,6 +87,10 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
     }
     emp.assistantPasswordHash = await bcrypt.hash(password, 12);
     emp.assistantPasswordSetAt = new Date();
+    // Viewable copy for managers; without a key, drop any old copy so it never shows a stale password.
+    const enc = encryptPassword(password);
+    if (enc) emp.assistantPasswordEnc = enc;
+    else emp.set('assistantPasswordEnc', undefined);
   }
 
   if (enabled !== undefined) {
@@ -107,7 +114,37 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
 
   const out = emp.toObject();
   delete out.assistantPasswordHash;
+  delete out.assistantPasswordEnc;
   res.json(out);
+});
+
+// GET /api/v1/employees/:id/assistant-login/password
+// Shows the saved assistant password to a signed-in manager (superadmin or `employees` permission).
+// The API key alone is not enough, so the assistant app cannot read passwords. Every reveal is logged.
+router.get('/:id/assistant-login/password', async (req: Request, res: Response) => {
+  const admin = readOptionalAdmin(req);
+  if (!admin || !(admin.isSuperAdmin || admin.permissions?.includes('employees'))) {
+    res.status(403).json({ error: 'ต้องเข้าสู่ระบบด้วยบัญชีที่มีสิทธิ์จัดการพนักงาน' });
+    return;
+  }
+  if (!canStoreViewablePassword()) {
+    res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ASSISTANT_PASSWORD_KEY ให้ backend จึงดูรหัสผ่านย้อนหลังไม่ได้' });
+    return;
+  }
+  const emp = await Employee.findById(req.params.id).select('+assistantPasswordEnc name');
+  if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
+  const plain = emp.assistantPasswordEnc ? decryptPassword(emp.assistantPasswordEnc) : null;
+  if (plain === null) {
+    res.status(404).json({ error: 'ไม่มีรหัสที่ดูย้อนหลังได้ (ตั้งไว้ก่อนเปิดระบบดูรหัส) ตั้งรหัสใหม่หนึ่งครั้งแล้วจะดูได้' });
+    return;
+  }
+  await AssistantPasswordView.create({
+    employeeId: emp._id,
+    employeeName: emp.name,
+    viewedBy: admin.username,
+    viewedAt: new Date(),
+  });
+  res.json({ password: plain });
 });
 
 // DELETE /api/v1/employees/:id/assistant-login
@@ -117,7 +154,7 @@ router.delete('/:id/assistant-login', async (req: Request, res: Response) => {
   const emp = await Employee.findByIdAndUpdate(
     req.params.id,
     {
-      $unset: { assistantUsername: 1, assistantPasswordHash: 1, assistantPasswordSetAt: 1 },
+      $unset: { assistantUsername: 1, assistantPasswordHash: 1, assistantPasswordEnc: 1, assistantPasswordSetAt: 1 },
       $set: { assistantLoginEnabled: false },
     },
     { new: true }

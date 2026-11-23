@@ -102,6 +102,9 @@ export const employeesApi = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  /** Saved assistant password; needs a signed-in manager. Each call is logged by the backend. */
+  getAssistantPassword: (id: string) =>
+    apiFetch<{ password: string }>(`${P}/employees/${id}/assistant-login/password`),
   removeAssistantLogin: (id: string) =>
     apiFetch<import('@/types/api').Employee>(`${P}/employees/${id}/assistant-login`, { method: 'DELETE' }),
 };

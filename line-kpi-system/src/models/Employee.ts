@@ -11,6 +11,8 @@ export interface IEmployee extends Document {
   assistantUsername?: string;
   /** bcrypt hash; never selected unless asked for with +assistantPasswordHash. */
   assistantPasswordHash?: string;
+  /** AES-256-GCM copy so managers can view it; never selected unless asked for. */
+  assistantPasswordEnc?: string;
   assistantPasswordSetAt?: Date;
   assistantLoginEnabled: boolean;
   createdAt: Date;
@@ -27,6 +29,7 @@ const employeeSchema = new Schema<IEmployee>(
     isActive: { type: Boolean, default: true, index: true },
     assistantUsername: { type: String, lowercase: true, trim: true },
     assistantPasswordHash: { type: String, select: false },
+    assistantPasswordEnc: { type: String, select: false },
     assistantPasswordSetAt: { type: Date },
     assistantLoginEnabled: { type: Boolean, default: false },
   },
@@ -42,6 +45,7 @@ employeeSchema.index(
 export const ASSISTANT_LOGIN_FIELDS = [
   'assistantUsername',
   'assistantPasswordHash',
+  'assistantPasswordEnc',
   'assistantPasswordSetAt',
   'assistantLoginEnabled',
 ] as const;
