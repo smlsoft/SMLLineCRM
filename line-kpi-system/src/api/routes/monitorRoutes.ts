@@ -6,6 +6,8 @@ import { TriageQueueItem, TRIAGE_MAX_ATTEMPTS } from '../../models/TriageQueueIt
 import { AutoResolveLog } from '../../models/AutoResolveLog';
 
 type TriageStatus = 'queued' | 'needs_reply' | 'resolved_pending_review' | null;
+/** Who proposed the close, set only with resolved_pending_review. */
+type TriageLayer = 'rule' | 'ai' | null;
 
 // Group-level precedence: the most actionable state wins.
 const TRIAGE_RANK: Record<Exclude<TriageStatus, null>, number> = {
@@ -19,11 +21,13 @@ interface MonitorConvRow {
   responseStatus: string;
   lastCustomerMessageAt?: Date | null;
   triageStatus?: TriageStatus;
+  triageLayer?: TriageLayer;
 }
 
 interface MonitorGroupRow {
   conversations: MonitorConvRow[];
   triageStatus?: TriageStatus;
+  triageLayer?: TriageLayer;
 }
 
 /**
@@ -54,7 +58,7 @@ async function attachTriageStatus(groups: MonitorGroupRow[]): Promise<void> {
           .select('conversationId lastMessageAtSnapshot status verdict')
           .lean(),
         AutoResolveLog.find({ conversationId: { $in: ids }, status: 'pending_review' })
-          .select('conversationId lastMessageAtSnapshot')
+          .select('conversationId lastMessageAtSnapshot layer')
           .lean(),
       ])
     : [[], []];
@@ -67,21 +71,31 @@ async function attachTriageStatus(groups: MonitorGroupRow[]): Promise<void> {
   for (const it of items) {
     put(key(it.conversationId, it.lastMessageAtSnapshot), it.status === 'done' ? 'needs_reply' : 'queued');
   }
+  // An AI proposal wins over a rule proposal for the same snapshot.
+  const layerByKey = new Map<string, Exclude<TriageLayer, null>>();
   for (const lg of logs) {
-    put(key(lg.conversationId, lg.lastMessageAtSnapshot), 'resolved_pending_review');
+    const k = key(lg.conversationId, lg.lastMessageAtSnapshot);
+    put(k, 'resolved_pending_review');
+    if (layerByKey.get(k) !== 'ai') layerByKey.set(k, lg.layer === 'ai' ? 'ai' : 'rule');
   }
 
   for (const g of groups) {
     let groupStatus: TriageStatus = null;
+    let groupLayer: TriageLayer = null;
     for (const c of g.conversations) {
-      const st =
+      const k =
         (c.responseStatus === 'slow' || c.responseStatus === 'waiting') && c.lastCustomerMessageAt
-          ? byKey.get(key(c._id, c.lastCustomerMessageAt)) ?? null
+          ? key(c._id, c.lastCustomerMessageAt)
           : null;
+      const st = k ? byKey.get(k) ?? null : null;
+      const layer = st === 'resolved_pending_review' && k ? layerByKey.get(k) ?? null : null;
       c.triageStatus = st;
+      c.triageLayer = layer;
       if (st && (!groupStatus || TRIAGE_RANK[st] > TRIAGE_RANK[groupStatus])) groupStatus = st;
+      if (layer && groupLayer !== 'ai') groupLayer = layer;
     }
     g.triageStatus = groupStatus;
+    g.triageLayer = groupStatus === 'resolved_pending_review' ? groupLayer : null;
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { monitorApi, messagesApi, conversationsApi } from '@/lib/api';
-import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message, TriageStatus } from '@/types/api';
+import type { MonitorGroup, MonitorEmployee, MonitorConversation, EmployeeStatus, Message, TriageStatus, TriageLayer } from '@/types/api';
 import { formatMs, formatDateTime, cn } from '@/lib/utils';
 import { RefreshCw, Activity, Clock, CheckCircle2, ChevronDown, ChevronUp, X, MessageCircle, CheckCircle, Loader2, Bot, ClipboardCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -49,15 +49,23 @@ const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: s
   },
   resolved_pending_review: {
     cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    label: 'เสนอปิด · รอตรวจ',
-    title: 'ระบบเสนอว่าไม่ต้องตอบ (กฎขั้นที่ 1 หรือ AI ขั้นที่ 2) รอคนตรวจที่หน้า Auto-resolve',
+    label: 'ชั้นที่ 1 เสนอปิด · รอยืนยัน',
+    title: 'กฎชั้นที่ 1 เสนอว่าไม่ต้องตอบ รอคนกดยืนยันที่หน้า Auto-resolve',
     icon: ClipboardCheck,
   },
 };
 
-function TriageBadge({ status }: { status?: TriageStatus }) {
+// The same proposal, made by the Layer 2 AI instead of a Layer 1 rule.
+const AI_PROPOSAL_CONFIG = {
+  ...TRIAGE_CONFIG.resolved_pending_review,
+  label: 'AI ตรวจแล้ว เสนอปิด · รอยืนยัน',
+  title: 'AI ชั้นที่ 2 ตรวจแล้วเสนอว่าไม่ต้องตอบ รอคนกดยืนยันที่หน้า Auto-resolve',
+  icon: Bot,
+};
+
+function TriageBadge({ status, layer }: { status?: TriageStatus; layer?: TriageLayer }) {
   if (!status) return null;
-  const t = TRIAGE_CONFIG[status];
+  const t = status === 'resolved_pending_review' && layer === 'ai' ? AI_PROPOSAL_CONFIG : TRIAGE_CONFIG[status];
   return (
     <span
       title={t.title}
@@ -626,7 +634,7 @@ function GroupConversationModal({
             <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider mb-1.5', cfg.badgeCls)}>
               {cfg.dot} {cfg.label}
             </span>
-            {group.triageStatus && <span className="ml-1.5 align-top"><TriageBadge status={group.triageStatus} /></span>}
+            {group.triageStatus && <span className="ml-1.5 align-top"><TriageBadge status={group.triageStatus} layer={group.triageLayer} /></span>}
             <h2 className="text-base font-headline font-extrabold text-on-surface truncate">{group.name}</h2>
           </div>
           <button onClick={onClose} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors">
@@ -749,7 +757,7 @@ function MonitorGroupCard({
             >
               {cfg.dot} {cfg.label}
             </span>
-            <TriageBadge status={group.triageStatus} />
+            <TriageBadge status={group.triageStatus} layer={group.triageLayer} />
             {group.oldestPendingMs != null && (
               <span className="text-xs font-bold text-on-surface-variant">
                 รอ {formatMs(group.oldestPendingMs)}

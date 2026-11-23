@@ -100,11 +100,14 @@ export interface MonitorEmployee {
 
 /** Layer 2 triage state for the conversation's current customer message (null = not triaged). */
 export type TriageStatus = 'queued' | 'needs_reply' | 'resolved_pending_review' | null;
+/** Who proposed the close (only with resolved_pending_review): Layer 1 rule or Layer 2 AI. */
+export type TriageLayer = 'rule' | 'ai' | null;
 
 export interface MonitorConversation {
   _id: string;
   responseStatus: 'slow' | 'waiting' | 'normal';
   triageStatus?: TriageStatus;
+  triageLayer?: TriageLayer;
   pendingMs: number;
   lastCustomerMessageAt: string | null;
   lastMessageAt: string;
@@ -126,6 +129,7 @@ export interface MonitorGroup {
   conversations: MonitorConversation[];
   /** Most actionable triage state among the group's pending conversations. */
   triageStatus?: TriageStatus;
+  triageLayer?: TriageLayer;
 }
 
 export interface EmployeeStatus {
