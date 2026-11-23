@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { Message } from '../../models/Message';
 
 const router = Router();
@@ -24,12 +25,21 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'groupId is required' });
     return;
   }
+  if (!Types.ObjectId.isValid(groupId)) {
+    res.status(400).json({ error: 'groupId must be a CustomerGroup _id (24-hex ObjectId), not a LINE group id' });
+    return;
+  }
 
   const limit = Math.min(Number(limitStr) || DEFAULT_LIMIT, MAX_LIMIT);
 
   const filter: Record<string, unknown> = { customerGroupId: groupId };
   if (before) {
-    filter.timestamp = { $lt: new Date(before) };
+    const beforeDate = new Date(before);
+    if (Number.isNaN(beforeDate.getTime())) {
+      res.status(400).json({ error: 'before must be an ISO timestamp' });
+      return;
+    }
+    filter.timestamp = { $lt: beforeDate };
   }
 
   const messages = await Message.find(filter)
