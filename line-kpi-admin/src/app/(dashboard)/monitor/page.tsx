@@ -49,7 +49,7 @@ const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: s
   },
   resolved_pending_review: {
     cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    label: 'ชั้นที่ 1 เสนอปิด · รอยืนยัน',
+    label: 'ชั้นที่ 1 เสนอปิด',
     title: 'กฎชั้นที่ 1 เสนอว่าไม่ต้องตอบ รอคนกดยืนยันที่หน้า Auto-resolve',
     icon: ClipboardCheck,
   },
@@ -58,7 +58,7 @@ const TRIAGE_CONFIG: Record<Exclude<TriageStatus, null>, { cls: string; label: s
 // The same proposal, made by the Layer 2 AI instead of a Layer 1 rule.
 const AI_PROPOSAL_CONFIG = {
   ...TRIAGE_CONFIG.resolved_pending_review,
-  label: 'AI ตรวจแล้ว เสนอปิด · รอยืนยัน',
+  label: 'AI ตรวจแล้ว เสนอปิด',
   title: 'AI ชั้นที่ 2 ตรวจแล้วเสนอว่าไม่ต้องตอบ รอคนกดยืนยันที่หน้า Auto-resolve',
   icon: Bot,
 };
