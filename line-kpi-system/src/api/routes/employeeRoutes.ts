@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { Employee } from '../../models/Employee';
-import { AssistantPasswordView } from '../../models/AssistantPasswordView';
+import { AssistantPasswordView, type AssistantPasswordViewOutcome } from '../../models/AssistantPasswordView';
+import { AdminUser, getEffectivePermissions } from '../../models/AdminUser';
+import { PermissionGroup } from '../../models/PermissionGroup';
 import { readOptionalAdmin } from '../middleware/jwtAuth';
 import { canStoreViewablePassword, decryptPassword, encryptPassword } from '../../services/assistantPasswordCrypto';
 import { masterIdCache } from '../../services/MasterIdCache';
@@ -119,31 +121,53 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
 });
 
 // GET /api/v1/employees/:id/assistant-login/password
-// Shows the saved assistant password to a signed-in manager (superadmin or `employees` permission).
-// The API key alone is not enough, so the assistant app cannot read passwords. Every reveal is logged.
+// Shows the saved assistant password to a signed-in manager. The token only identifies the manager:
+// the account is re-read from the DB on every call, so a deactivated or demoted manager is refused at
+// once (a JWT carries a permission snapshot valid for days). The API key alone is never enough, so the
+// assistant app cannot read passwords. Every attempt, allowed or not, is logged.
 router.get('/:id/assistant-login/password', async (req: Request, res: Response) => {
-  const admin = readOptionalAdmin(req);
-  if (!admin || !(admin.isSuperAdmin || admin.permissions?.includes('employees'))) {
+  res.set('Cache-Control', 'no-store');
+  const employeeId = req.params.id;
+  if (!Types.ObjectId.isValid(employeeId)) { res.status(400).json({ error: 'Invalid id' }); return; }
+
+  const token = readOptionalAdmin(req);
+  const user = token ? await AdminUser.findById(token.sub) : null;
+  const log = (outcome: AssistantPasswordViewOutcome, employeeName?: string) =>
+    AssistantPasswordView.create({
+      employeeId,
+      employeeName,
+      outcome,
+      adminId: user ? String(user._id) : token?.sub,
+      viewedBy: user?.username ?? token?.username,
+      ip: req.ip,
+      viewedAt: new Date(),
+    });
+
+  let allowed = false;
+  if (user && user.isActive) {
+    const group = user.groupId ? await PermissionGroup.findById(user.groupId) : null;
+    allowed = user.isSuperAdmin || getEffectivePermissions(user, group).includes('employees');
+  }
+  if (!allowed) {
+    await log('denied');
     res.status(403).json({ error: 'ต้องเข้าสู่ระบบด้วยบัญชีที่มีสิทธิ์จัดการพนักงาน' });
     return;
   }
   if (!canStoreViewablePassword()) {
+    await log('no_key');
     res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ASSISTANT_PASSWORD_KEY ให้ backend จึงดูรหัสผ่านย้อนหลังไม่ได้' });
     return;
   }
-  const emp = await Employee.findById(req.params.id).select('+assistantPasswordEnc name');
-  if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
+  const emp = await Employee.findById(employeeId).select('+assistantPasswordEnc name');
+  if (!emp) { await log('not_found'); res.status(404).json({ error: 'Not found' }); return; }
   const plain = emp.assistantPasswordEnc ? decryptPassword(emp.assistantPasswordEnc) : null;
   if (plain === null) {
+    await log('no_copy', emp.name);
     res.status(404).json({ error: 'ไม่มีรหัสที่ดูย้อนหลังได้ (ตั้งไว้ก่อนเปิดระบบดูรหัส) ตั้งรหัสใหม่หนึ่งครั้งแล้วจะดูได้' });
     return;
   }
-  await AssistantPasswordView.create({
-    employeeId: emp._id,
-    employeeName: emp.name,
-    viewedBy: admin.username,
-    viewedAt: new Date(),
-  });
+  // Logged before the password leaves; if the log write fails, nothing is shown.
+  await log('shown', emp.name);
   res.json({ password: plain });
 });
 

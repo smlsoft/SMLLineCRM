@@ -39,7 +39,14 @@ export function AssistantLoginDialog({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!employee) return;
+    if (!employee) {
+      // Closed: forget any revealed or typed password right away.
+      setPassword('');
+      setSavedPassword(null);
+      setShowPassword(false);
+      setRevealNote('');
+      return;
+    }
     setUsername(employee.assistantUsername ?? employee.employeeCode.toLowerCase());
     setPassword('');
     setEnabled(!!employee.assistantLoginEnabled);
