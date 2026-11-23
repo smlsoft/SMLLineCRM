@@ -46,4 +46,6 @@ export const config = {
 
   /** Internal URL of the Layer 1 worker trigger (e.g. http://worker:3005); empty disables check-now. */
   layer1WorkerUrl: optional('LAYER1_WORKER_URL', ''),
+  /** Secret for the viewable copy of employee assistant passwords; empty = passwords cannot be viewed. */
+  assistantPasswordKey: optional('ASSISTANT_PASSWORD_KEY', ''),
 } as const;

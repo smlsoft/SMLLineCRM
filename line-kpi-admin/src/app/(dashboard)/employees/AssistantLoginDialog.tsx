@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { employeesApi } from '@/lib/api';
 import type { Employee } from '@/types/api';
 import { formatDateTime } from '@/lib/utils';
@@ -30,6 +31,11 @@ export function AssistantLoginDialog({
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  // The saved password once revealed; saving the same value again does not reset it.
+  const [savedPassword, setSavedPassword] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealNote, setRevealNote] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -38,10 +44,31 @@ export function AssistantLoginDialog({
     setPassword('');
     setEnabled(!!employee.assistantLoginEnabled);
     setError('');
+    setShowPassword(false);
+    setSavedPassword(null);
+    setRevealNote('');
   }, [employee]);
 
   const hasPassword = !!employee?.assistantPasswordSetAt;
   const hasLogin = !!employee?.assistantUsername || hasPassword;
+
+  // Eye button: shows what is typed; for a saved password with nothing typed, fetches and shows it.
+  const toggleShow = async () => {
+    if (showPassword) { setShowPassword(false); return; }
+    setShowPassword(true);
+    if (!employee || !hasPassword || password || savedPassword !== null) return;
+    setRevealing(true);
+    setRevealNote('');
+    try {
+      const res = await employeesApi.getAssistantPassword(employee._id);
+      setSavedPassword(res.password);
+      setPassword(res.password);
+    } catch (err) {
+      setRevealNote(err instanceof Error ? err.message : 'ดูรหัสผ่านไม่สำเร็จ');
+    } finally {
+      setRevealing(false);
+    }
+  };
 
   const handleRemove = async () => {
     if (!employee) return;
@@ -75,7 +102,7 @@ export function AssistantLoginDialog({
     try {
       await employeesApi.setAssistantLogin(employee._id, {
         username: username.trim().toLowerCase(),
-        ...(password ? { password } : {}),
+        ...(password && password !== savedPassword ? { password } : {}),
         enabled,
       });
       onSaved();
@@ -109,17 +136,36 @@ export function AssistantLoginDialog({
 
           <div className="space-y-2">
             <Label htmlFor="assistantPassword" className={labelCls}>
-              {hasPassword ? 'รหัสผ่านใหม่ (เว้นว่างไว้ = ใช้รหัสเดิม)' : 'รหัสผ่าน'}
+              {hasPassword ? 'รหัสผ่าน (เว้นว่างไว้ = ใช้รหัสเดิม · กดรูปตาเพื่อดูรหัสที่ตั้งไว้)' : 'รหัสผ่าน'}
             </Label>
-            <Input
-              id="assistantPassword"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={`อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`}
-              autoComplete="new-password"
-              className="rounded-xl"
-            />
+            <div className="relative">
+              <Input
+                id="assistantPassword"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={hasPassword ? '••••••••' : `อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`}
+                autoComplete="new-password"
+                className="rounded-xl pr-10 font-mono"
+              />
+              <button
+                type="button"
+                onClick={toggleShow}
+                disabled={revealing}
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                title={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-on-surface-variant hover:text-primary disabled:opacity-50"
+              >
+                {revealing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : showPassword ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </button>
+            </div>
+            {revealNote && <p className="text-[11px] text-amber-600 dark:text-amber-400">{revealNote}</p>}
             <p className="text-[11px] text-on-surface-variant">
               {hasPassword && employee?.assistantPasswordSetAt
                 ? `ตั้งรหัสล่าสุด ${formatDateTime(employee.assistantPasswordSetAt)}`
