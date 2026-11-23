@@ -55,9 +55,12 @@ function MessageBody({ msg }: { msg: AutoResolveSnapshotMessage }) {
 export function ChatSnapshot({
   scrollKey,
   messages,
+  className,
 }: {
   scrollKey: string;
   messages: AutoResolveSnapshotMessage[];
+  /** Overrides the default height cap (max-h-72), e.g. for a popup. */
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -68,7 +71,7 @@ export function ChatSnapshot({
   return (
     <div
       ref={ref}
-      className="bg-surface-container rounded-xl px-2.5 py-3 max-h-72 overflow-y-auto space-y-1.5"
+      className={cn('bg-surface-container rounded-xl px-2.5 py-3 max-h-72 overflow-y-auto space-y-1.5', className)}
     >
       {messages.map((msg, idx) => {
         const prev = idx > 0 ? messages[idx - 1] : undefined;
