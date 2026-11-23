@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { Employee, ASSISTANT_LOGIN_FIELDS } from '../../models/Employee';
+import { Employee } from '../../models/Employee';
 import { masterIdCache } from '../../services/MasterIdCache';
 import { reclassifyEmployeeMessages } from '../../services/EmployeeReclassifier';
 
@@ -46,6 +46,8 @@ router.post('/', async (req: Request, res: Response) => {
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const MIN_PASSWORD_LENGTH = 8;
+// bcrypt reads only the first 72 bytes; a longer password would be silently cut.
+const MAX_PASSWORD_BYTES = 72;
 
 // PUT /api/v1/employees/:id/assistant-login
 // Sets the AI assistant app login. Body: { username?, password?, enabled? } (each optional).
@@ -76,6 +78,10 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
       res.status(400).json({ error: `รหัสผ่านต้องยาวอย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร` });
       return;
     }
+    if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+      res.status(400).json({ error: `รหัสผ่านยาวเกินไป (สูงสุด ${MAX_PASSWORD_BYTES} ไบต์ ประมาณ ${MAX_PASSWORD_BYTES} ตัวอักษรภาษาอังกฤษ)` });
+      return;
+    }
     emp.assistantPasswordHash = await bcrypt.hash(password, 12);
     emp.assistantPasswordSetAt = new Date();
   }
@@ -104,11 +110,17 @@ router.put('/:id/assistant-login', async (req: Request, res: Response) => {
   res.json(out);
 });
 
+const EDITABLE_FIELDS = ['lineUserId', 'name', 'employeeCode', 'department', 'assignedGroupIds', 'isActive'] as const;
+
 // PUT /api/v1/employees/:id
 router.put('/:id', async (req: Request, res: Response) => {
-  // Login fields change only through /:id/assistant-login (hashing and checks live there).
-  const body = { ...(req.body ?? {}) } as Record<string, unknown>;
-  for (const f of ASSISTANT_LOGIN_FIELDS) delete body[f];
+  // Only these fields can change here. Anything else, including update operators like `$set` and
+  // dotted paths, is dropped, so the assistant login fields change only through /:id/assistant-login.
+  const input = (req.body ?? {}) as Record<string, unknown>;
+  const body: Record<string, unknown> = {};
+  for (const f of EDITABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(input, f)) body[f] = input[f];
+  }
   const emp = await Employee.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true });
   if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
   await masterIdCache.refresh();
