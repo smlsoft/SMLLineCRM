@@ -97,6 +97,11 @@ export const employeesApi = {
     apiFetch(`${P}/employees/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deactivate: (id: string) =>
     apiFetch(`${P}/employees/${id}`, { method: 'DELETE' }),
+  setAssistantLogin: (id: string, body: { username?: string; password?: string; enabled?: boolean }) =>
+    apiFetch<import('@/types/api').Employee>(`${P}/employees/${id}/assistant-login`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
 };
 
 // ---- Issue Category Master ----

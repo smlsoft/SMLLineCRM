@@ -26,6 +26,10 @@ export interface Employee {
   department?: string;
   assignedGroupIds: string[];
   isActive: boolean;
+  /** AI assistant app login (the password itself is never returned). */
+  assistantUsername?: string;
+  assistantPasswordSetAt?: string;
+  assistantLoginEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }

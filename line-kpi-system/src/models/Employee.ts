@@ -7,6 +7,12 @@ export interface IEmployee extends Document {
   department?: string;
   assignedGroupIds: Types.ObjectId[];
   isActive: boolean;
+  /** Login name for the staff AI assistant app (lowercase, unique when set). */
+  assistantUsername?: string;
+  /** bcrypt hash; never selected unless asked for with +assistantPasswordHash. */
+  assistantPasswordHash?: string;
+  assistantPasswordSetAt?: Date;
+  assistantLoginEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,8 +25,25 @@ const employeeSchema = new Schema<IEmployee>(
     department: { type: String },
     assignedGroupIds: [{ type: Schema.Types.ObjectId, ref: 'CustomerGroup' }],
     isActive: { type: Boolean, default: true, index: true },
+    assistantUsername: { type: String, lowercase: true, trim: true },
+    assistantPasswordHash: { type: String, select: false },
+    assistantPasswordSetAt: { type: Date },
+    assistantLoginEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+employeeSchema.index(
+  { assistantUsername: 1 },
+  { unique: true, partialFilterExpression: { assistantUsername: { $type: 'string' } } }
+);
+
+/** Fields only the assistant-login route may write. */
+export const ASSISTANT_LOGIN_FIELDS = [
+  'assistantUsername',
+  'assistantPasswordHash',
+  'assistantPasswordSetAt',
+  'assistantLoginEnabled',
+] as const;
 
 export const Employee = model<IEmployee>('Employee', employeeSchema);
