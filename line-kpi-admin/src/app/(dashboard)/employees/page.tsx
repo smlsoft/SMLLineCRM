@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Power } from 'lucide-react';
+import { Plus, Pencil, Power, KeyRound } from 'lucide-react';
 import { employeesApi } from '@/lib/api';
 import { formatDate, maskLineId } from '@/lib/utils';
 import type { Employee } from '@/types/api';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AssistantLoginDialog } from './AssistantLoginDialog';
 
 const emptyForm = {
   lineUserId: '',
@@ -30,6 +31,7 @@ export default function EmployeesPage() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [loginFor, setLoginFor] = useState<Employee | null>(null);
 
   const fetchEmployees = async () => {
     try {
@@ -234,8 +236,9 @@ export default function EmployeesPage() {
                 <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">แผนก</th>
                 <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">LINE User ID</th>
                 <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">สถานะ</th>
+                <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">แอปผู้ช่วย AI</th>
                 <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">วันที่เพิ่ม</th>
-                <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider w-[100px]">แก้ไข</th>
+                <th className="text-left px-4 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider w-[140px]">แก้ไข</th>
               </tr>
             </thead>
             <tbody>
@@ -256,6 +259,18 @@ export default function EmployeesPage() {
                   <td className="px-4 py-3">
                     <StatusBadge isActive={emp.isActive} label={emp.isActive ? 'ใช้งาน' : 'ไม่ใช้งาน'} />
                   </td>
+                  <td className="px-4 py-3 text-sm">
+                    {emp.assistantUsername ? (
+                      <div className="space-y-0.5">
+                        <p className="font-mono text-on-surface">{emp.assistantUsername}</p>
+                        <p className={emp.assistantLoginEnabled ? 'text-[11px] text-emerald-600 dark:text-emerald-400' : 'text-[11px] text-on-surface-variant'}>
+                          {emp.assistantLoginEnabled ? 'เปิดสิทธิ์' : 'ปิดสิทธิ์'}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-on-surface-variant">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-on-surface-variant">
                     {formatDate(emp.createdAt)}
                   </td>
@@ -266,6 +281,14 @@ export default function EmployeesPage() {
                         className="p-2 rounded-xl hover:bg-surface-container-low text-on-surface-variant hover:text-primary transition-colors"
                       >
                         <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => setLoginFor(emp)}
+                        title="ตั้งชื่อผู้ใช้/รหัสผ่านแอปผู้ช่วย AI"
+                        aria-label="ตั้งชื่อผู้ใช้และรหัสผ่านแอปผู้ช่วย AI"
+                        className="p-2 rounded-xl hover:bg-surface-container-low text-on-surface-variant hover:text-primary transition-colors"
+                      >
+                        <KeyRound className="h-4 w-4" />
                       </button>
                       {emp.isActive && (
                         <button
@@ -283,6 +306,8 @@ export default function EmployeesPage() {
           </table>
         </div>
       )}
+
+      <AssistantLoginDialog employee={loginFor} onClose={() => setLoginFor(null)} onSaved={fetchEmployees} />
     </div>
   );
 }

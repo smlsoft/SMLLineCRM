@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
-import { Employee } from '../../models/Employee';
+import bcrypt from 'bcryptjs';
+import { Employee, ASSISTANT_LOGIN_FIELDS } from '../../models/Employee';
 import { masterIdCache } from '../../services/MasterIdCache';
 import { reclassifyEmployeeMessages } from '../../services/EmployeeReclassifier';
 
@@ -43,9 +44,72 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(201).json(emp);
 });
 
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+const MIN_PASSWORD_LENGTH = 8;
+
+// PUT /api/v1/employees/:id/assistant-login
+// Sets the AI assistant app login. Body: { username?, password?, enabled? } (each optional).
+// Login can be turned on only when the employee has both a username and a password.
+router.put('/:id/assistant-login', async (req: Request, res: Response) => {
+  const { username, password, enabled } = (req.body ?? {}) as {
+    username?: unknown;
+    password?: unknown;
+    enabled?: unknown;
+  };
+
+  const emp = await Employee.findById(req.params.id).select('+assistantPasswordHash');
+  if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
+
+  if (username !== undefined) {
+    const u = typeof username === 'string' ? username.trim().toLowerCase() : '';
+    if (!USERNAME_RE.test(u)) {
+      res.status(400).json({ error: 'ชื่อผู้ใช้ต้องยาว 3-32 ตัว ใช้ได้เฉพาะ a-z 0-9 . _ -' });
+      return;
+    }
+    const taken = await Employee.exists({ assistantUsername: u, _id: { $ne: emp._id } });
+    if (taken) { res.status(409).json({ error: 'ชื่อผู้ใช้นี้มีพนักงานคนอื่นใช้แล้ว' }); return; }
+    emp.assistantUsername = u;
+  }
+
+  if (password !== undefined) {
+    if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+      res.status(400).json({ error: `รหัสผ่านต้องยาวอย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร` });
+      return;
+    }
+    emp.assistantPasswordHash = await bcrypt.hash(password, 12);
+    emp.assistantPasswordSetAt = new Date();
+  }
+
+  if (enabled !== undefined) {
+    if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be true or false' }); return; }
+    if (enabled && (!emp.assistantUsername || !emp.assistantPasswordHash)) {
+      res.status(400).json({ error: 'ต้องตั้งชื่อผู้ใช้และรหัสผ่านก่อนเปิดสิทธิ์' });
+      return;
+    }
+    emp.assistantLoginEnabled = enabled;
+  }
+
+  try {
+    await emp.save();
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      res.status(409).json({ error: 'ชื่อผู้ใช้นี้มีพนักงานคนอื่นใช้แล้ว' });
+      return;
+    }
+    throw err;
+  }
+
+  const out = emp.toObject();
+  delete out.assistantPasswordHash;
+  res.json(out);
+});
+
 // PUT /api/v1/employees/:id
 router.put('/:id', async (req: Request, res: Response) => {
-  const emp = await Employee.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  // Login fields change only through /:id/assistant-login (hashing and checks live there).
+  const body = { ...(req.body ?? {}) } as Record<string, unknown>;
+  for (const f of ASSISTANT_LOGIN_FIELDS) delete body[f];
+  const emp = await Employee.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true });
   if (!emp) { res.status(404).json({ error: 'Not found' }); return; }
   await masterIdCache.refresh();
   // Re-classify ในกรณีที่ cache ล้าหลัง หรือ lineUserId เพิ่งถูกแก้ไข

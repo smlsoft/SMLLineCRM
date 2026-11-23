@@ -5,6 +5,7 @@ import { authRoutes } from './routes/authRoutes';
 import { adminUserRoutes } from './routes/adminUserRoutes';
 import { permissionGroupRoutes } from './routes/permissionGroupRoutes';
 import { employeeRoutes } from './routes/employeeRoutes';
+import { assistantAuthRoutes } from './routes/assistantAuthRoutes';
 import { oaRoutes } from './routes/oaRoutes';
 import { conversationRoutes } from './routes/conversationRoutes';
 import { messageRoutes } from './routes/messageRoutes';
@@ -34,6 +35,8 @@ apiRouter.use('/monitor', monitorRoutes);
 apiRouter.use('/config', configRoutes);
 apiRouter.use('/issue-categories', issueCategoryRoutes);
 apiRouter.use('/auto-resolve', autoResolveAgentRoutes);
+// Staff AI assistant app: checks an employee's Basic-auth login (API key still required).
+apiRouter.use('/assistant/auth', assistantAuthRoutes);
 
 // ── Admin management routes (API key + JWT required) ──────────
 apiRouter.use('/admin/users', jwtAuth, adminUserRoutes);
