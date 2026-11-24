@@ -4,6 +4,8 @@ import { configService } from '../../services/ConfigService';
 import { IAiProviderGroup, IAiProviderInGroup, AiTaskName, IMediaStorageConfig } from '../../models/SystemConfig';
 import { aiRouter } from '../../services/ai';
 import { KNOWN_PROVIDERS_MAP } from '../../services/ai/knownProviders';
+import { createMediaS3Client } from '../../services/MediaStorageClient';
+import { MediaCleanupJob } from '../../jobs/MediaCleanupJob';
 
 const router = Router();
 
@@ -19,27 +21,37 @@ function maskGroup(group: IAiProviderGroup): IAiProviderGroup {
 
 const EMPTY_MEDIA: IMediaStorageConfig = {
   storage: 'none',
+  retentionDays: 7,
   r2: { accountId: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' },
   s3: { region: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' },
+  minio: { endpoint: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' },
 };
 
 function maskMediaConfig(media: IMediaStorageConfig | undefined): IMediaStorageConfig {
   if (!media) return EMPTY_MEDIA;
   return {
     storage: media.storage ?? 'none',
+    retentionDays: media.retentionDays ?? 7,
     r2: {
-      accountId:   media.r2?.accountId   ?? '',
-      accessKeyId: media.r2?.accessKeyId ?? '',
+      accountId:       media.r2?.accountId   ?? '',
+      accessKeyId:     media.r2?.accessKeyId ?? '',
       secretAccessKey: media.r2?.secretAccessKey ? MASK : '',
-      bucketName:  media.r2?.bucketName  ?? '',
-      publicUrl:   media.r2?.publicUrl   ?? '',
+      bucketName:      media.r2?.bucketName  ?? '',
+      publicUrl:       media.r2?.publicUrl   ?? '',
     },
     s3: {
-      region:      media.s3?.region      ?? '',
-      accessKeyId: media.s3?.accessKeyId ?? '',
+      region:          media.s3?.region      ?? '',
+      accessKeyId:     media.s3?.accessKeyId ?? '',
       secretAccessKey: media.s3?.secretAccessKey ? MASK : '',
-      bucketName:  media.s3?.bucketName  ?? '',
-      publicUrl:   media.s3?.publicUrl   ?? '',
+      bucketName:      media.s3?.bucketName  ?? '',
+      publicUrl:       media.s3?.publicUrl   ?? '',
+    },
+    minio: {
+      endpoint:        media.minio?.endpoint    ?? '',
+      accessKeyId:     media.minio?.accessKeyId ?? '',
+      secretAccessKey: media.minio?.secretAccessKey ? MASK : '',
+      bucketName:      media.minio?.bucketName  ?? '',
+      publicUrl:       media.minio?.publicUrl   ?? '',
     },
   };
 }
@@ -95,7 +107,8 @@ router.put('/', async (req: Request, res: Response) => {
       tasks?: Partial<Record<AiTaskName, { groupId?: string }>>;
     };
     media?: {
-      storage?: 'none' | 'r2' | 's3';
+      storage?: 'none' | 'r2' | 's3' | 'minio';
+      retentionDays?: number;
       r2?: {
         accountId?: string;
         accessKeyId?: string;
@@ -105,6 +118,13 @@ router.put('/', async (req: Request, res: Response) => {
       };
       s3?: {
         region?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        bucketName?: string;
+        publicUrl?: string;
+      };
+      minio?: {
+        endpoint?: string;
         accessKeyId?: string;
         secretAccessKey?: string;
         bucketName?: string;
@@ -173,29 +193,52 @@ router.put('/', async (req: Request, res: Response) => {
   // --- Media Storage ---
   if (body.media !== undefined) {
     if (body.media.storage !== undefined) {
+      if (!['none', 'r2', 's3', 'minio'].includes(body.media.storage)) {
+        res.status(400).json({ error: 'Invalid media.storage value' });
+        return;
+      }
       patch['media.storage'] = body.media.storage;
     }
-    if (body.media.r2 !== undefined) {
-      const cfg = await configService.getConfig();
-      const existing = cfg.media.r2;
-      patch['media.r2.accountId']       = body.media.r2.accountId       ?? existing.accountId;
-      patch['media.r2.accessKeyId']     = body.media.r2.accessKeyId     ?? existing.accessKeyId;
-      patch['media.r2.secretAccessKey'] = (body.media.r2.secretAccessKey && body.media.r2.secretAccessKey !== MASK)
-        ? body.media.r2.secretAccessKey
-        : existing.secretAccessKey;
-      patch['media.r2.bucketName']      = body.media.r2.bucketName      ?? existing.bucketName;
-      patch['media.r2.publicUrl']       = body.media.r2.publicUrl       ?? existing.publicUrl;
+    if (body.media.retentionDays !== undefined) {
+      const days = Number(body.media.retentionDays);
+      if (!Number.isInteger(days) || days < 0) {
+        res.status(400).json({ error: 'media.retentionDays must be an integer >= 0' });
+        return;
+      }
+      patch['media.retentionDays'] = days;
     }
-    if (body.media.s3 !== undefined) {
+    if (body.media.r2 !== undefined || body.media.s3 !== undefined || body.media.minio !== undefined) {
       const cfg = await configService.getConfig();
-      const existing = cfg.media.s3;
-      patch['media.s3.region']          = body.media.s3.region          ?? existing.region;
-      patch['media.s3.accessKeyId']     = body.media.s3.accessKeyId     ?? existing.accessKeyId;
-      patch['media.s3.secretAccessKey'] = (body.media.s3.secretAccessKey && body.media.s3.secretAccessKey !== MASK)
-        ? body.media.s3.secretAccessKey
-        : existing.secretAccessKey;
-      patch['media.s3.bucketName']      = body.media.s3.bucketName      ?? existing.bucketName;
-      patch['media.s3.publicUrl']       = body.media.s3.publicUrl       ?? existing.publicUrl;
+      if (body.media.r2 !== undefined) {
+        const existing = cfg.media?.r2;
+        patch['media.r2.accountId']       = body.media.r2.accountId       ?? existing?.accountId   ?? '';
+        patch['media.r2.accessKeyId']     = body.media.r2.accessKeyId     ?? existing?.accessKeyId ?? '';
+        patch['media.r2.secretAccessKey'] = (body.media.r2.secretAccessKey && body.media.r2.secretAccessKey !== MASK)
+          ? body.media.r2.secretAccessKey
+          : (existing?.secretAccessKey ?? '');
+        patch['media.r2.bucketName']      = body.media.r2.bucketName      ?? existing?.bucketName  ?? '';
+        patch['media.r2.publicUrl']       = body.media.r2.publicUrl       ?? existing?.publicUrl   ?? '';
+      }
+      if (body.media.s3 !== undefined) {
+        const existing = cfg.media?.s3;
+        patch['media.s3.region']          = body.media.s3.region          ?? existing?.region      ?? '';
+        patch['media.s3.accessKeyId']     = body.media.s3.accessKeyId     ?? existing?.accessKeyId ?? '';
+        patch['media.s3.secretAccessKey'] = (body.media.s3.secretAccessKey && body.media.s3.secretAccessKey !== MASK)
+          ? body.media.s3.secretAccessKey
+          : (existing?.secretAccessKey ?? '');
+        patch['media.s3.bucketName']      = body.media.s3.bucketName      ?? existing?.bucketName  ?? '';
+        patch['media.s3.publicUrl']       = body.media.s3.publicUrl       ?? existing?.publicUrl   ?? '';
+      }
+      if (body.media.minio !== undefined) {
+        const existing = cfg.media?.minio;
+        patch['media.minio.endpoint']        = body.media.minio.endpoint    ?? existing?.endpoint    ?? '';
+        patch['media.minio.accessKeyId']     = body.media.minio.accessKeyId ?? existing?.accessKeyId ?? '';
+        patch['media.minio.secretAccessKey'] = (body.media.minio.secretAccessKey && body.media.minio.secretAccessKey !== MASK)
+          ? body.media.minio.secretAccessKey
+          : (existing?.secretAccessKey ?? '');
+        patch['media.minio.bucketName']      = body.media.minio.bucketName  ?? existing?.bucketName  ?? '';
+        patch['media.minio.publicUrl']       = body.media.minio.publicUrl   ?? existing?.publicUrl   ?? '';
+      }
     }
   }
 
@@ -305,7 +348,7 @@ router.post('/test-ai', async (req: Request, res: Response) => {
 });
 
 // POST /api/v1/config/test-media
-// ทดสอบการเชื่อมต่อกับ R2 / S3 โดย list objects (1 item)
+// ทดสอบการเชื่อมต่อกับ R2 / S3 / MinIO โดย list objects (1 item)
 router.post('/test-media', async (_req: Request, res: Response) => {
   try {
     const cfg = await configService.getConfig();
@@ -316,38 +359,26 @@ router.post('/test-media', async (_req: Request, res: Response) => {
       return;
     }
 
-    const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-
-    let client: InstanceType<typeof S3Client>;
-    let bucketName: string;
-
-    if (storage === 'r2') {
-      const { accountId, accessKeyId, secretAccessKey, bucketName: bn } = cfg.media.r2;
-      if (!accountId || !accessKeyId || !secretAccessKey || !bn) {
-        res.json({ success: false, error: 'R2 credentials incomplete' });
-        return;
-      }
-      client = new S3Client({
-        region: 'auto',
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-        credentials: { accessKeyId, secretAccessKey },
-      });
-      bucketName = bn;
-    } else {
-      const { region, accessKeyId, secretAccessKey, bucketName: bn } = cfg.media.s3;
-      if (!region || !accessKeyId || !secretAccessKey || !bn) {
-        res.json({ success: false, error: 'S3 credentials incomplete' });
-        return;
-      }
-      client = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
-      bucketName = bn;
-    }
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const { client, bucketName } = createMediaS3Client(storage, cfg);
 
     await client.send(new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 }));
     res.json({ success: true, storage });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.json({ success: false, error: msg.slice(0, 300) });
+  }
+});
+
+// POST /api/v1/config/cleanup-media
+// ลบรูปเก่ากว่า media.retentionDays ด้วยตนเองทันที
+router.post('/cleanup-media', async (_req: Request, res: Response) => {
+  try {
+    const result = await new MediaCleanupJob().run();
+    res.json({ success: true, ...result });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: msg.slice(0, 300) });
   }
 });
 

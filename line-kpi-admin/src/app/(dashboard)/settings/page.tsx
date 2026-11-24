@@ -775,6 +775,7 @@ function CronJobsSection({
 
 const EMPTY_R2 = { accountId: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' };
 const EMPTY_S3 = { region: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' };
+const EMPTY_MINIO = { endpoint: '', accessKeyId: '', secretAccessKey: '', bucketName: '', publicUrl: '' };
 
 function MediaStorageSection({
   config,
@@ -785,20 +786,26 @@ function MediaStorageSection({
 }) {
   const [media, setMedia] = useState<MediaStorageConfig>({
     storage: 'none',
+    retentionDays: 7,
     r2: { ...EMPTY_R2 },
     s3: { ...EMPTY_S3 },
+    minio: { ...EMPTY_MINIO },
   });
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupMsg, setCleanupMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (config?.media) {
       setMedia({
         storage: config.media.storage ?? 'none',
+        retentionDays: config.media.retentionDays ?? 7,
         r2: { ...EMPTY_R2, ...config.media.r2 },
         s3: { ...EMPTY_S3, ...config.media.s3 },
+        minio: { ...EMPTY_MINIO, ...config.media.minio },
       });
     }
   }, [config]);
@@ -808,7 +815,10 @@ function MediaStorageSection({
     setSaveMsg('');
     setTestResult(null);
     try {
-      const updated = await configApi.update({ media });
+      const normalizedDays = Math.max(0, Math.floor(Number(media.retentionDays) || 0));
+      const updated = await configApi.update({
+        media: { ...media, retentionDays: normalizedDays },
+      });
       onConfigUpdate(updated);
       setSaveMsg('บันทึกแล้ว');
     } catch {
@@ -832,11 +842,38 @@ function MediaStorageSection({
     }
   };
 
+  const handleCleanup = async () => {
+    setCleaning(true);
+    setCleanupMsg(null);
+    try {
+      const result = await configApi.cleanupMedia();
+      if (!result.success) {
+        setCleanupMsg({ ok: false, text: result.error ?? 'เกิดข้อผิดพลาด' });
+      } else if (result.skipped) {
+        setCleanupMsg({ ok: true, text: 'ปิดการลบรูปอัตโนมัติอยู่ (retentionDays = 0)' });
+      } else {
+        const deleted = result.deletedCount ?? 0;
+        const failed = result.failedObjectDeletes ?? 0;
+        setCleanupMsg({
+          ok: failed === 0,
+          text: failed > 0 ? `ลบแล้ว ${deleted} รูป (ลบไฟล์ไม่สำเร็จ ${failed} รูป)` : `ลบแล้ว ${deleted} รูป`,
+        });
+      }
+    } catch {
+      setCleanupMsg({ ok: false, text: 'เกิดข้อผิดพลาดในการลบรูป' });
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   const updateR2 = (field: string, value: string) =>
     setMedia((m) => ({ ...m, r2: { ...m.r2, [field]: value } }));
 
   const updateS3 = (field: string, value: string) =>
     setMedia((m) => ({ ...m, s3: { ...m.s3, [field]: value } }));
+
+  const updateMinio = (field: string, value: string) =>
+    setMedia((m) => ({ ...m, minio: { ...m.minio, [field]: value } }));
 
   return (
     <div className="bg-surface-container rounded-3xl p-6 space-y-5">
@@ -847,7 +884,7 @@ function MediaStorageSection({
 
       {/* Storage selector */}
       <div className="space-y-2">
-        {(['none', 'r2', 's3'] as const).map((opt) => (
+        {(['none', 'r2', 's3', 'minio'] as const).map((opt) => (
           <label key={opt} className="flex items-start gap-3 p-3 rounded-xl cursor-pointer hover:bg-surface-container-high transition-colors">
             <input
               type="radio"
@@ -859,14 +896,22 @@ function MediaStorageSection({
             />
             <div>
               <p className="text-sm font-bold text-on-surface">
-                {opt === 'none' ? 'ไม่เก็บรูป' : opt === 'r2' ? 'Cloudflare R2' : 'AWS S3'}
+                {opt === 'none'
+                  ? 'ไม่เก็บรูป'
+                  : opt === 'r2'
+                    ? 'Cloudflare R2'
+                    : opt === 's3'
+                      ? 'AWS S3'
+                      : 'MinIO (S3-Compatible)'}
               </p>
               <p className="text-[11px] text-on-surface-variant">
                 {opt === 'none'
                   ? 'บันทึกเฉพาะว่ามีรูปส่งมา ไม่ดาวน์โหลด binary — ประหยัด storage มากที่สุด'
                   : opt === 'r2'
                     ? 'Cloudflare R2 — ไม่มีค่า egress, S3-compatible, 10 GB ฟรี/เดือน'
-                    : 'AWS S3 — $0.023/GB/เดือน'}
+                    : opt === 's3'
+                      ? 'AWS S3 — $0.023/GB/เดือน'
+                      : 'MinIO บน server ตัวเอง (S3-compatible, forcePathStyle)'}
               </p>
             </div>
           </label>
@@ -939,12 +984,93 @@ function MediaStorageSection({
         </div>
       )}
 
+      {/* MinIO config */}
+      {media.storage === 'minio' && (
+        <div className="space-y-3 pt-1">
+          <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">MinIO Credentials</p>
+          {[
+            { label: 'Endpoint URL', field: 'endpoint', placeholder: 'http://192.168.2.158:9009' },
+            { label: 'Access Key ID', field: 'accessKeyId', placeholder: 'MinIO Access Key' },
+            { label: 'Secret Access Key', field: 'secretAccessKey', placeholder: MASK, isSecret: true },
+            { label: 'Bucket Name', field: 'bucketName', placeholder: 'goh-data' },
+            { label: 'Public URL (ไม่บังคับ)', field: 'publicUrl', placeholder: 'เว้นว่างเพื่อดึงรูปผ่านระบบอัตโนมัติ (Private Bucket)' },
+          ].map(({ label, field, placeholder, isSecret }) => (
+            <div key={field} className="space-y-1">
+              <label className="text-[11px] text-on-surface-variant">{label}</label>
+              {isSecret ? (
+                <ApiKeyInput
+                  value={media.minio[field as keyof typeof media.minio]}
+                  onChange={(v) => updateMinio(field, v)}
+                  hasStored={!!config?.media?.minio?.secretAccessKey}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={media.minio[field as keyof typeof media.minio]}
+                  onChange={(e) => updateMinio(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-surface-container border border-surface-container-high rounded-xl px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Retention cleanup config */}
+      <div className="space-y-2 pt-2 border-t border-surface-container-high/40">
+        <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">การลบรูปอัตโนมัติ</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="media-retention-days" className="text-sm text-on-surface">
+            ลบรูปที่เก่ากว่า (วัน)
+          </label>
+          <input
+            id="media-retention-days"
+            type="number"
+            min={0}
+            step={1}
+            value={media.retentionDays}
+            onChange={(e) => {
+              const parsed = parseInt(e.target.value, 10);
+              setMedia((m) => ({
+                ...m,
+                retentionDays: Number.isNaN(parsed) ? 0 : Math.max(0, parsed),
+              }));
+            }}
+            className="w-24 bg-surface-container-lowest border border-surface-container-high rounded-xl px-3 py-1.5 text-sm font-bold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          {media.retentionDays > 0 && (
+            <button
+              type="button"
+              onClick={handleCleanup}
+              disabled={cleaning || saving}
+              className="inline-flex items-center gap-1.5 border border-surface-container-high text-on-surface text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-surface-container-high transition-colors disabled:opacity-50"
+            >
+              {cleaning ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              ลบรูปเก่าตอนนี้
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-on-surface-variant">
+          ระบบจะลบรูปที่เก่ากว่าจำนวนวันที่กำหนดทุกวันเวลา 03:00 น. (ใส่ 0 เพื่อไม่ลบอัตโนมัติ)
+        </p>
+      </div>
+
       {/* Test result */}
       {testResult && (
         <div className={cn('flex items-center gap-2 text-sm rounded-xl px-3 py-2', testResult.success ? 'bg-green-500/10 text-green-700' : 'bg-error/10 text-error')}>
           {testResult.success
             ? <><CheckCircle2 className="size-4 shrink-0" />เชื่อมต่อสำเร็จ</>
             : <><XCircle className="size-4 shrink-0" />{testResult.error}</>}
+        </div>
+      )}
+
+      {/* Cleanup result */}
+      {cleanupMsg && (
+        <div className={cn('flex items-center gap-2 text-sm rounded-xl px-3 py-2', cleanupMsg.ok ? 'bg-green-500/10 text-green-700' : 'bg-error/10 text-error')}>
+          {cleanupMsg.ok
+            ? <><CheckCircle2 className="size-4 shrink-0" />{cleanupMsg.text}</>
+            : <><XCircle className="size-4 shrink-0" />{cleanupMsg.text}</>}
         </div>
       )}
 

@@ -561,8 +561,8 @@ function GroupMessagesModal({
                   >
                     {msg.textContent
                       ? msg.textContent
-                      : msg.messageType === 'image' && msg.mediaId?.data
-                        ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
+                      : msg.messageType === 'image' && (msg.mediaId?.url || msg.mediaId?.data)
+                        ? <img src={msg.mediaId.url ?? `data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
                         : <span className="italic text-on-surface/50 text-xs">[{msg.messageType}]</span>
                     }
                   </div>
@@ -661,8 +661,8 @@ function GroupConversationModal({
                   <div className={cn('max-w-[80%] px-3 py-2 rounded-2xl text-sm', isEmployee ? 'bg-primary text-on-primary rounded-tr-sm' : 'bg-surface-container text-on-surface rounded-tl-sm')}>
                     {msg.textContent
                       ? msg.textContent
-                      : msg.messageType === 'image' && msg.mediaId?.data
-                        ? <img src={`data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
+                      : msg.messageType === 'image' && (msg.mediaId?.url || msg.mediaId?.data)
+                        ? <img src={msg.mediaId.url ?? `data:${msg.mediaId.mimeType};base64,${msg.mediaId.data}`} alt="รูปภาพ" className="max-w-[200px] max-h-[200px] rounded-lg object-contain" />
                         : <span className="italic text-xs opacity-60">[{msg.messageType}]</span>
                     }
                   </div>

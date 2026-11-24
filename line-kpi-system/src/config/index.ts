@@ -40,6 +40,7 @@ export const config = {
 
   cron: {
     dailyAnalysis: optional('CRON_DAILY_ANALYSIS', '0 23 * * *'),
+    mediaCleanup: optional('CRON_MEDIA_CLEANUP', '0 3 * * *'),
   },
 
   evaluatePreviousDay: optional('EVALUATE_PREVIOUS_DAY', 'true') === 'true',

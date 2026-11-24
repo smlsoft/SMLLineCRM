@@ -13,6 +13,7 @@ import { messageRoutes } from './routes/messageRoutes';
 import { groupMessageRoutes } from './routes/groupMessageRoutes';
 import { monitorRoutes } from './routes/monitorRoutes';
 import { configRoutes } from './routes/configRoutes';
+import { mediaRoutes } from './routes/mediaRoutes';
 import { issueCategoryRoutes } from './routes/issueCategoryRoutes';
 import { dailyReportRoutes } from './routes/dailyReportRoutes';
 import { autoResolveAgentRoutes, autoResolveAdminRoutes } from './routes/autoResolveRoutes';
@@ -34,6 +35,7 @@ apiRouter.use('/conversations/:conversationId/messages', messageRoutes);
 apiRouter.use('/messages', groupMessageRoutes);
 apiRouter.use('/monitor', monitorRoutes);
 apiRouter.use('/config', configRoutes);
+apiRouter.use('/media', jwtAuth, mediaRoutes);
 apiRouter.use('/issue-categories', issueCategoryRoutes);
 apiRouter.use('/auto-resolve', autoResolveAgentRoutes);
 // Staff AI assistant app: checks an employee's Basic-auth login (API key still required).

@@ -1,0 +1,6 @@
+# Task 026: MinIO media storage, proxy, and retention cleanup
+
+GOAL: Add configurable MinIO S3-compatible media storage (with authenticated backend proxy for private buckets) and daily image retention cleanup (default 7 days) configurable on `/settings`.
+MODE: do
+FILES: line-kpi-system/src/config/index.ts line-kpi-system/src/models/SystemConfig.ts line-kpi-system/src/models/MessageMedia.ts line-kpi-system/src/services/MediaStorageClient.ts line-kpi-system/src/services/ImageFetchService.ts line-kpi-system/src/jobs/MediaCleanupJob.ts line-kpi-system/src/jobs/scheduler.ts line-kpi-system/src/api/routes/mediaRoutes.ts line-kpi-system/src/api/routes/configRoutes.ts line-kpi-system/src/api/router.ts line-kpi-admin/src/app/api/proxy/[...path]/route.ts line-kpi-admin/src/types/api.ts line-kpi-admin/src/lib/api.ts line-kpi-admin/src/app/(dashboard)/settings/page.tsx line-kpi-admin/src/app/(dashboard)/monitor/page.tsx
+DONE-WHEN: `(cd line-kpi-system && npx tsc --noEmit) && (cd line-kpi-admin && npx tsc --noEmit && npm run lint) && (cd line-kpi-mcp && npx tsc --noEmit && npm test)` all exit 0, and `createMediaS3Client('minio', ...)` succeeds with read-only `ListObjectsV2` against a configured MinIO endpoint.

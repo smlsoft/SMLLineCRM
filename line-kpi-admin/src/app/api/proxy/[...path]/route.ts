@@ -77,6 +77,18 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
     return response;
   }
 
+  // ── Binary / non-JSON responses (e.g. proxied media images) ──
+  const contentType = res.headers.get('content-type') ?? '';
+  if (res.ok && !contentType.includes('application/json')) {
+    const outHeaders: Record<string, string> = {};
+    if (contentType) outHeaders['Content-Type'] = contentType;
+    const cacheControl = res.headers.get('cache-control');
+    if (cacheControl) outHeaders['Cache-Control'] = cacheControl;
+    const contentLength = res.headers.get('content-length');
+    if (contentLength) outHeaders['Content-Length'] = contentLength;
+    return new NextResponse(res.body, { status: res.status, headers: outHeaders });
+  }
+
   // ── Default: forward response as-is ─────────────────────────
   const data = await res.json().catch(() => ({}));
   return NextResponse.json(data, { status: res.status });
