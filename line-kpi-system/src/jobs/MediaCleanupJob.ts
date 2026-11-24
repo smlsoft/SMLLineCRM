@@ -59,6 +59,9 @@ export class MediaCleanupJob {
       if (failedIds.length > 0) {
         query._id = { $nin: failedIds };
       }
+      if (failedClientStorages.size > 0) {
+        query.storage = { $nin: Array.from(failedClientStorages) };
+      }
 
       const batch = await MessageMedia.find(query)
         .select('_id messageId storage objectKey')

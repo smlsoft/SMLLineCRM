@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { apiKeyAuth } from './middleware/auth';
-import { jwtAuth } from './middleware/jwtAuth';
+import { jwtAuth, requirePermission } from './middleware/jwtAuth';
 import { authRoutes } from './routes/authRoutes';
 import { adminUserRoutes } from './routes/adminUserRoutes';
 import { permissionGroupRoutes } from './routes/permissionGroupRoutes';
@@ -34,7 +34,7 @@ apiRouter.use('/conversations', conversationRoutes);
 apiRouter.use('/conversations/:conversationId/messages', messageRoutes);
 apiRouter.use('/messages', groupMessageRoutes);
 apiRouter.use('/monitor', monitorRoutes);
-apiRouter.use('/config', configRoutes);
+apiRouter.use('/config', jwtAuth, requirePermission('settings'), configRoutes);
 apiRouter.use('/media', jwtAuth, mediaRoutes);
 apiRouter.use('/issue-categories', issueCategoryRoutes);
 apiRouter.use('/auto-resolve', autoResolveAgentRoutes);

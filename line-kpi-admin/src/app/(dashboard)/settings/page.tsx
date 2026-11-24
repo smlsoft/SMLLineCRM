@@ -1039,11 +1039,12 @@ function MediaStorageSection({
             }}
             className="w-24 bg-surface-container-lowest border border-surface-container-high rounded-xl px-3 py-1.5 text-sm font-bold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
-          {media.retentionDays > 0 && (
+          {(config?.media?.retentionDays ?? 7) > 0 && (
             <button
               type="button"
               onClick={handleCleanup}
-              disabled={cleaning || saving}
+              disabled={cleaning || saving || media.retentionDays !== (config?.media?.retentionDays ?? 7)}
+              title={media.retentionDays !== (config?.media?.retentionDays ?? 7) ? 'กรุณากดบันทึกก่อนลบรูปเก่า' : undefined}
               className="inline-flex items-center gap-1.5 border border-surface-container-high text-on-surface text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-surface-container-high transition-colors disabled:opacity-50"
             >
               {cleaning ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
@@ -1051,6 +1052,11 @@ function MediaStorageSection({
             </button>
           )}
         </div>
+        {media.retentionDays !== (config?.media?.retentionDays ?? 7) && (config?.media?.retentionDays ?? 7) > 0 && (
+          <p className="text-[11px] text-amber-600">
+            กรุณากด &quot;บันทึก&quot; ก่อนกดลบรูปเก่าเพื่อให้ใช้จำนวนวันล่าสุด
+          </p>
+        )}
         <p className="text-[11px] text-on-surface-variant">
           ระบบจะลบรูปที่เก่ากว่าจำนวนวันที่กำหนดทุกวันเวลา 03:00 น. (ใส่ 0 เพื่อไม่ลบอัตโนมัติ)
         </p>

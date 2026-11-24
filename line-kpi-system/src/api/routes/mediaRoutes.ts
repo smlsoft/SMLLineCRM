@@ -39,6 +39,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     const buf = Buffer.from(media.data, 'base64');
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(buf);
     return;
   }
@@ -61,11 +62,17 @@ router.get('/:id', async (req: Request, res: Response) => {
 
       res.setHeader('Content-Type', result.ContentType || contentType);
       res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       if (typeof result.ContentLength === 'number') {
         res.setHeader('Content-Length', String(result.ContentLength));
       }
 
       const bodyStream = result.Body as unknown as Readable;
+      res.on('close', () => {
+        if (!res.writableEnded) {
+          bodyStream.destroy();
+        }
+      });
       bodyStream.on('error', (streamErr) => {
         console.warn(`[mediaRoutes] Stream error for ${id}:`, streamErr);
         if (!res.headersSent) {
