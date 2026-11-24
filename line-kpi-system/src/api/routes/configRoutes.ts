@@ -192,6 +192,10 @@ router.put('/', async (req: Request, res: Response) => {
 
   // --- Media Storage ---
   if (body.media !== undefined) {
+    if (body.media === null || typeof body.media !== 'object' || Array.isArray(body.media)) {
+      res.status(400).json({ error: 'media must be an object' });
+      return;
+    }
     if (body.media.storage !== undefined) {
       if (!['none', 'r2', 's3', 'minio'].includes(body.media.storage)) {
         res.status(400).json({ error: 'Invalid media.storage value' });
@@ -210,8 +214,8 @@ router.put('/', async (req: Request, res: Response) => {
           days = Number(trimmed);
         }
       }
-      if (!Number.isSafeInteger(days) || days < 0) {
-        res.status(400).json({ error: 'media.retentionDays must be an integer >= 0' });
+      if (!Number.isSafeInteger(days) || days < 0 || days > 36500) {
+        res.status(400).json({ error: 'media.retentionDays must be an integer between 0 and 36500' });
         return;
       }
       patch['media.retentionDays'] = days;
