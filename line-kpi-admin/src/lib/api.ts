@@ -148,8 +148,16 @@ export const conversationsApi = {
 
 // ---- Messages ----
 export const messagesApi = {
-  list: (conversationId: string) =>
-    apiFetch<import('@/types/api').Message[]>(`${P}/conversations/${conversationId}/messages`),
+  /** Oldest first. `limit` keeps only the newest N; `noMedia` drops image payloads (light previews). */
+  list: (conversationId: string, opts?: { limit?: number; noMedia?: boolean }) => {
+    const q = new URLSearchParams();
+    if (opts?.limit) q.set('limit', String(opts.limit));
+    if (opts?.noMedia) q.set('noMedia', '1');
+    const qs = q.toString();
+    return apiFetch<import('@/types/api').Message[]>(
+      `${P}/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`
+    );
+  },
   listByGroup: (params: { groupId: string; before?: string; limit?: number }) => {
     const q = new URLSearchParams();
     q.set('groupId', params.groupId);
