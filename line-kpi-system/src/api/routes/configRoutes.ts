@@ -200,8 +200,17 @@ router.put('/', async (req: Request, res: Response) => {
       patch['media.storage'] = body.media.storage;
     }
     if (body.media.retentionDays !== undefined) {
-      const days = Number(body.media.retentionDays);
-      if (!Number.isInteger(days) || days < 0) {
+      const rawDays: unknown = body.media.retentionDays;
+      let days = NaN;
+      if (typeof rawDays === 'number') {
+        days = rawDays;
+      } else if (typeof rawDays === 'string') {
+        const trimmed = rawDays.trim();
+        if (/^\d+$/.test(trimmed)) {
+          days = Number(trimmed);
+        }
+      }
+      if (!Number.isSafeInteger(days) || days < 0) {
         res.status(400).json({ error: 'media.retentionDays must be an integer >= 0' });
         return;
       }
