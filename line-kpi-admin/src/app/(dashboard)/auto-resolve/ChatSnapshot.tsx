@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { File, Image as ImageIcon, MapPin, MessageSquare, Mic, Smile, Video } from 'lucide-react';
 import type { AutoResolveSnapshotMessage } from '@/types/api';
@@ -49,24 +49,57 @@ function MessageBody({ msg }: { msg: AutoResolveSnapshotMessage }) {
 
 /**
  * LINE-style read-only chat: customers on the left with avatar and name, staff on the right in green,
- * time beside each bubble, a divider per day. Opens scrolled to the newest message and scrolls again
- * only when the entry or its message count changes, so it never fights a user who scrolled up.
+ * time beside each bubble, a divider per day. Opens scrolled to the newest message (or to the marker)
+ * and scrolls again only when the entry or its message count changes, so it never fights a user who
+ * scrolled up. With `markerAt`, a divider is drawn after the last message at or before that time and
+ * later messages are dimmed.
  */
 export function ChatSnapshot({
   scrollKey,
   messages,
   className,
+  markerAt,
+  markerLabel = 'ระบบตรวจตรงนี้ · ข้อความด้านล่างเข้ามาทีหลัง',
 }: {
   scrollKey: string;
   messages: AutoResolveSnapshotMessage[];
   /** Overrides the default height cap (max-h-72), e.g. for a popup. */
   className?: string;
+  /** ISO time the rule or AI checked the conversation. */
+  markerAt?: string;
+  markerLabel?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
+  const markerMs = markerAt ? new Date(markerAt).getTime() : NaN;
+  // Index of the first message after the check; -1 when every message is at or before it.
+  const afterIdx = Number.isNaN(markerMs)
+    ? -1
+    : messages.findIndex((m) => new Date(m.timestamp).getTime() > markerMs);
+  const showMarker = !Number.isNaN(markerMs) && messages.length > 0;
+
   useEffect(() => {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const mk = markerRef.current;
+    if (mk && afterIdx >= 0) {
+      // Put the divider about a third from the top: what was checked above, what came later below.
+      el.scrollTop = Math.max(0, mk.offsetTop - el.offsetTop - el.clientHeight / 3);
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollKey]);
+
+  const marker = (
+    <div ref={markerRef} className="flex items-center gap-2 py-1.5" role="separator" aria-label={markerLabel}>
+      <span className="h-px flex-1 bg-amber-500/60" />
+      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full whitespace-nowrap">
+        {markerLabel}
+      </span>
+      <span className="h-px flex-1 bg-amber-500/60" />
+    </div>
+  );
 
   return (
     <div
@@ -83,8 +116,11 @@ export function ChatSnapshot({
           prev.senderType !== msg.senderType ||
           prev.senderDisplayName !== msg.senderDisplayName;
 
+        const isAfter = afterIdx >= 0 && idx >= afterIdx;
         return (
-          <div key={`${scrollKey}-${idx}`} className={cn(firstOfRun && idx > 0 && 'pt-1.5')}>
+          <Fragment key={`${scrollKey}-${idx}`}>
+          {showMarker && idx === afterIdx && marker}
+          <div className={cn(firstOfRun && idx > 0 && 'pt-1.5', isAfter && 'opacity-50')}>
             {newDay && (
               <div className="flex justify-center py-1">
                 <span className="text-[10px] text-on-surface-variant bg-surface-container-high/70 px-2.5 py-0.5 rounded-full">
@@ -131,8 +167,10 @@ export function ChatSnapshot({
               </div>
             </div>
           </div>
+          </Fragment>
         );
       })}
+      {showMarker && afterIdx === -1 && marker}
     </div>
   );
 }

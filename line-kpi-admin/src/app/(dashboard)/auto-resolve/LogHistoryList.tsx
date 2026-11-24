@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ChevronRight, MessageSquare, X } from 'lucide-react';
 import type { AutoResolveLog } from '@/types/api';
 import { cn, formatDateTime } from '@/lib/utils';
-import { ChatSnapshot } from './ChatSnapshot';
+import { LiveChat } from './LiveChat';
 import { LayerBadge, LogOutcome, STATUS_CONFIG, StatusBadge, getGroupName } from './logParts';
 
 /**
@@ -35,7 +35,6 @@ export function LogHistoryList({
     <>
       <ul className="bg-surface-container-lowest border border-surface-container-high/30 rounded-3xl shadow-sm overflow-hidden divide-y divide-surface-container-high/40">
         {logs.map((log) => {
-          const msgCount = log.snapshotMessages?.length ?? 0;
           return (
             <li key={log._id}>
               <button
@@ -63,7 +62,7 @@ export function LogHistoryList({
                   <p className="font-mono opacity-75 hidden sm:block">{log.proposedBy}</p>
                   <p className="inline-flex items-center gap-0.5 font-bold text-primary">
                     <MessageSquare className="size-3" />
-                    {msgCount}
+                    ดูแชท
                     <ChevronRight className="size-3.5" />
                   </p>
                 </div>
@@ -117,15 +116,13 @@ export function LogHistoryList({
                 {open.reason}
               </div>
 
-              {open.snapshotMessages && open.snapshotMessages.length > 0 ? (
-                <ChatSnapshot
-                  scrollKey={`${open._id}-${open.snapshotMessages.length}`}
-                  messages={open.snapshotMessages}
-                  className="max-h-[50vh]"
-                />
-              ) : (
-                <p className="text-xs text-on-surface-variant text-center py-6">ไม่มีข้อความสนทนาที่บันทึกไว้</p>
-              )}
+              <LiveChat
+                key={open._id}
+                conversationId={open.conversationId}
+                markerAt={open.lastMessageAtSnapshot}
+                fallback={open.snapshotMessages}
+                className="max-h-[50vh]"
+              />
             </div>
 
             <div className="px-4 md:px-5 py-3 border-t border-surface-container-high/30 space-y-2">
