@@ -14,6 +14,7 @@ import type {
 import { cn, formatDateTime } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
 import { ChatSnapshot } from './ChatSnapshot';
+import { LiveChat } from './LiveChat';
 import { AiQueueList } from './AiQueueList';
 import { LogHistoryList } from './LogHistoryList';
 import { LayerBadge, LogOutcome, STATUS_CONFIG, StatusBadge, getGroupName } from './logParts';
@@ -558,12 +559,14 @@ export default function AutoResolvePage() {
                         {log.reason}
                       </div>
 
-                      {/* Chat Snapshot */}
-                      {log.snapshotMessages && log.snapshotMessages.length > 0 && (
+                      {/* Chat: the saved snapshot, or the live conversation when none was saved (Layer 2 AI) */}
+                      {log.snapshotMessages && log.snapshotMessages.length > 0 ? (
                         <ChatSnapshot
                           scrollKey={`${log._id}-${log.snapshotMessages.length}`}
                           messages={log.snapshotMessages}
                         />
+                      ) : (
+                        <LiveChat conversationId={log.conversationId} markerAt={log.lastMessageAtSnapshot} />
                       )}
                     </div>
 
