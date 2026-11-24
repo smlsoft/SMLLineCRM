@@ -8,19 +8,24 @@ import { ChatSnapshot } from './ChatSnapshot';
 
 /**
  * Reads the conversation's real messages when shown (like /monitor), nothing stored, and marks the
- * moment the rule or AI checked it. Shows `fallback` (the chat saved with the log) only if the live
- * load fails.
+ * moment the rule or AI checked it. Shows `fallback` (the chat saved with the log) when the live load
+ * fails or comes back empty (conversation removed). `light` loads only the newest messages without
+ * image payloads, for cards that are all shown at once.
  */
+const LIGHT_LIMIT = 30;
+
 export function LiveChat({
   conversationId,
   markerAt,
   fallback,
   className,
+  light = false,
 }: {
   conversationId: string;
   markerAt?: string;
   fallback?: AutoResolveSnapshotMessage[];
   className?: string;
+  light?: boolean;
 }) {
   const [messages, setMessages] = useState<AutoResolveSnapshotMessage[] | null>(null);
   const [error, setError] = useState('');
@@ -30,7 +35,7 @@ export function LiveChat({
     setMessages(null);
     setError('');
     messagesApi
-      .list(conversationId)
+      .list(conversationId, light ? { limit: LIGHT_LIMIT, noMedia: true } : undefined)
       .then((rows) => {
         if (!alive) return;
         setMessages(
@@ -49,16 +54,19 @@ export function LiveChat({
     return () => {
       alive = false;
     };
-  }, [conversationId]);
+  }, [conversationId, light]);
+
+  const hasFallback = !!fallback && fallback.length > 0;
+  const showSaved = (note: string) => (
+    <div className="space-y-1">
+      <p className="text-[11px] text-amber-700 dark:text-amber-400">{note}</p>
+      <ChatSnapshot scrollKey={`${conversationId}-saved`} messages={fallback ?? []} className={className} />
+    </div>
+  );
 
   if (error) {
-    return fallback && fallback.length > 0 ? (
-      <div className="space-y-1">
-        <p className="text-[11px] text-amber-700 dark:text-amber-400">
-          โหลดบทสนทนาจริงไม่สำเร็จ แสดงข้อความที่บันทึกไว้ตอนตรวจแทน
-        </p>
-        <ChatSnapshot scrollKey={`${conversationId}-saved`} messages={fallback} className={className} />
-      </div>
+    return hasFallback ? (
+      showSaved('โหลดบทสนทนาจริงไม่สำเร็จ แสดงข้อความที่บันทึกไว้ตอนตรวจแทน')
     ) : (
       <p className="text-xs text-error text-center py-6">โหลดบทสนทนาไม่สำเร็จ: {error}</p>
     );
@@ -73,6 +81,7 @@ export function LiveChat({
   }
 
   if (messages.length === 0) {
+    if (hasFallback) return showSaved('ไม่พบบทสนทนานี้แล้ว แสดงข้อความที่บันทึกไว้ตอนตรวจแทน');
     return <p className="text-xs text-on-surface-variant text-center py-6">ไม่พบข้อความในบทสนทนานี้</p>;
   }
 

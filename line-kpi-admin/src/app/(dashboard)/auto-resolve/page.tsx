@@ -566,7 +566,7 @@ export default function AutoResolvePage() {
                           messages={log.snapshotMessages}
                         />
                       ) : (
-                        <LiveChat conversationId={log.conversationId} markerAt={log.lastMessageAtSnapshot} />
+                        <LiveChat conversationId={log.conversationId} markerAt={log.lastMessageAtSnapshot} light />
                       )}
                     </div>
 
