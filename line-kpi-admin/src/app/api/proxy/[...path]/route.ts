@@ -86,6 +86,7 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
     if (cacheControl) outHeaders['Cache-Control'] = cacheControl;
     const contentLength = res.headers.get('content-length');
     if (contentLength) outHeaders['Content-Length'] = contentLength;
+    outHeaders['X-Content-Type-Options'] = res.headers.get('x-content-type-options') ?? 'nosniff';
     return new NextResponse(res.body, { status: res.status, headers: outHeaders });
   }
 

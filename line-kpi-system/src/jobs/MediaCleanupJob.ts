@@ -47,6 +47,14 @@ export class MediaCleanupJob {
     }
 
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(cutoff.getTime())) {
+      return {
+        deletedCount: 0,
+        failedObjectDeletes: 0,
+        retentionDays,
+        skipped: 'invalid cutoff date',
+      };
+    }
     const clientCache = new Map<CloudMediaStorage, MediaS3Connection>();
     const failedClientStorages = new Set<CloudMediaStorage>();
     const failedIds: Types.ObjectId[] = [];
