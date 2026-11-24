@@ -18,10 +18,20 @@ export interface IMediaS3Config {
   publicUrl: string;
 }
 
+export interface IMediaMinioConfig {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
 export interface IMediaStorageConfig {
-  storage: 'none' | 'r2' | 's3';
+  storage: 'none' | 'r2' | 's3' | 'minio';
+  retentionDays: number;
   r2: IMediaR2Config;
   s3: IMediaS3Config;
+  minio: IMediaMinioConfig;
 }
 
 // ---- New interfaces ----
@@ -105,6 +115,17 @@ const mediaS3Schema = new Schema<IMediaS3Config>(
   { _id: false }
 );
 
+const mediaMinioSchema = new Schema<IMediaMinioConfig>(
+  {
+    endpoint:        { type: String, default: '' },
+    accessKeyId:     { type: String, default: '' },
+    secretAccessKey: { type: String, default: '' },
+    bucketName:      { type: String, default: '' },
+    publicUrl:       { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const systemConfigSchema = new Schema<ISystemConfig>(
   {
     _id: { type: String, default: 'singleton' },
@@ -127,9 +148,11 @@ const systemConfigSchema = new Schema<ISystemConfig>(
       },
     },
     media: {
-      storage: { type: String, enum: ['none', 'r2', 's3'], default: 'none' },
+      storage: { type: String, enum: ['none', 'r2', 's3', 'minio'], default: 'none' },
+      retentionDays: { type: Number, default: 7, min: 0 },
       r2: { type: mediaR2Schema, default: () => ({}) },
       s3: { type: mediaS3Schema, default: () => ({}) },
+      minio: { type: mediaMinioSchema, default: () => ({}) },
     },
     autoResolve: {
       mode: { type: String, enum: ['review', 'auto'], default: 'review' },

@@ -313,10 +313,20 @@ export interface MediaS3Config {
   publicUrl: string;
 }
 
+export interface MediaMinioConfig {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl: string;
+}
+
 export interface MediaStorageConfig {
-  storage: 'none' | 'r2' | 's3';
+  storage: 'none' | 'r2' | 's3' | 'minio';
+  retentionDays: number;
   r2: MediaR2Config;
   s3: MediaS3Config;
+  minio: MediaMinioConfig;
 }
 
 export interface SystemConfig {

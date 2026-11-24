@@ -231,6 +231,17 @@ export const configApi = {
     apiFetch<{ success: boolean; storage?: string; error?: string }>(`${P}/config/test-media`, {
       method: 'POST',
     }),
+  cleanupMedia: () =>
+    apiFetch<{
+      success: boolean;
+      deletedCount?: number;
+      failedObjectDeletes?: number;
+      retentionDays?: number;
+      skipped?: string;
+      error?: string;
+    }>(`${P}/config/cleanup-media`, {
+      method: 'POST',
+    }),
 };
 
 // ---- Auto-Resolve Review & Log ----

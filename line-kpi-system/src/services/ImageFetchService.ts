@@ -1,10 +1,11 @@
 import { Readable } from 'stream';
 import { messagingApi } from '@line/bot-sdk';
 import { Types } from 'mongoose';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { MessageMedia } from '../models/MessageMedia';
 import { Message } from '../models/Message';
 import { configService } from './ConfigService';
+import { createMediaS3Client, type CloudMediaStorage } from './MediaStorageClient';
 
 /**
  * ดึงรูปภาพจาก LINE Content API → แปลงเป็น base64 → บันทึกใน MessageMedia collection
@@ -53,21 +54,36 @@ export async function fetchAndStoreImage(params: {
     const ext = mimeType.split('/')[1] ?? 'bin';
     const objectKey = `media/${lineMessageId}.${ext}`;
 
-    let mediaDocData: { data?: string; url?: string };
+    const mediaObjectId = new Types.ObjectId();
 
-    if (storage === 'r2' || storage === 's3') {
-      // 5. Upload ไป cloud storage
-      const url = await uploadToCloud({ buffer, objectKey, mimeType, storage, cfg });
-      mediaDocData = { url };
+    let mediaDocData: {
+      storage: 'r2' | 's3' | 'minio' | 'mongodb';
+      objectKey?: string;
+      data?: string;
+      url?: string;
+    };
+
+    if (storage === 'r2' || storage === 's3' || storage === 'minio') {
+      // 5. Upload ไป cloud storage (R2 / S3 / MinIO)
+      const url = await uploadToCloud({
+        buffer,
+        objectKey,
+        mimeType,
+        storage,
+        cfg,
+        mediaObjectId,
+      });
+      mediaDocData = { storage, objectKey, url };
     } else {
       // fallback — เก็บ base64 ใน MongoDB (ไม่ควรถึงตรงนี้ แต่ type-safe)
-      mediaDocData = { data: buffer.toString('base64') };
+      mediaDocData = { storage: 'mongodb', data: buffer.toString('base64') };
     }
 
     // 6. บันทึก MessageMedia (idempotent — unique index บน lineMessageId)
     let mediaDoc: { _id: Types.ObjectId };
     try {
       mediaDoc = await MessageMedia.create({
+        _id: mediaObjectId,
         messageId: messageDocId,
         lineMessageId,
         mimeType,
@@ -107,30 +123,13 @@ async function uploadToCloud(opts: {
   buffer: Buffer;
   objectKey: string;
   mimeType: string;
-  storage: 'r2' | 's3';
+  storage: CloudMediaStorage;
   cfg: Awaited<ReturnType<typeof configService.getConfig>>;
+  mediaObjectId: Types.ObjectId;
 }): Promise<string> {
-  const { buffer, objectKey, mimeType, storage, cfg } = opts;
+  const { buffer, objectKey, mimeType, storage, cfg, mediaObjectId } = opts;
 
-  let client: S3Client;
-  let bucketName: string;
-  let publicUrl: string;
-
-  if (storage === 'r2') {
-    const { accountId, accessKeyId, secretAccessKey, bucketName: bn, publicUrl: pu } = cfg.media.r2;
-    client = new S3Client({
-      region: 'auto',
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-      credentials: { accessKeyId, secretAccessKey },
-    });
-    bucketName = bn;
-    publicUrl = pu;
-  } else {
-    const { region, accessKeyId, secretAccessKey, bucketName: bn, publicUrl: pu } = cfg.media.s3;
-    client = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
-    bucketName = bn;
-    publicUrl = pu;
-  }
+  const { client, bucketName, publicUrl } = createMediaS3Client(storage, cfg);
 
   await client.send(new PutObjectCommand({
     Bucket: bucketName,
@@ -139,9 +138,13 @@ async function uploadToCloud(opts: {
     ContentType: mimeType,
   }));
 
-  // publicUrl ควรไม่มี trailing slash
-  const base = publicUrl.replace(/\/$/, '');
-  return `${base}/${objectKey}`;
+  const trimmedPublicUrl = publicUrl.trim().replace(/\/$/, '');
+  if (trimmedPublicUrl) {
+    return `${trimmedPublicUrl}/${objectKey}`;
+  }
+
+  // Private bucket (เช่น MinIO ภายใน LAN): ให้โหลดผ่าน authenticated proxy
+  return `/api/proxy/media/${mediaObjectId.toString()}`;
 }
 
 function detectMimeType(buf: Buffer): string {
