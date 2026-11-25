@@ -139,6 +139,8 @@ export interface ClaimedTriage {
     lastCustomerMessageAt?: string;
     lastEmployeeMessageAt?: string;
     lastMessageAt: string;
+    /** Whole minutes from the customer's last message to the claim time, computed by the backend. */
+    minutesSinceLastCustomerMessage: number | null;
   };
   messages: ClaimedTriageMessage[];
 }

@@ -7,7 +7,7 @@ import {
   IAutoResolveSnapshotMessage,
 } from '../../models/AutoResolveLog';
 import { Conversation } from '../../models/Conversation';
-import { Message } from '../../models/Message';
+import { Message, MessageType } from '../../models/Message';
 import { TriageQueueItem, TRIAGE_MAX_ATTEMPTS } from '../../models/TriageQueueItem';
 import { AutoResolveMode } from '../../models/SystemConfig';
 import { configService } from '../../services/ConfigService';
@@ -248,6 +248,18 @@ async function loadConversationMessages(conversationId: Types.ObjectId) {
   return rows.reverse();
 }
 
+/**
+ * Customer message types the AI cannot judge from text: when one is the customer's latest
+ * message, a "resolved" verdict is overridden to "needs_reply". Stickers are not included.
+ */
+const MEDIA_LAST_TYPES: MessageType[] = ['image', 'file', 'video', 'audio', 'location'];
+const MEDIA_LAST_OVERRIDE_PREFIX = 'ระบบเปลี่ยนเป็นต้องตอบ: ลูกค้าส่งรูป/ไฟล์เป็นข้อความล่าสุด';
+
+/** Whole minutes from `lastCustomerAt` to `at`, never negative. */
+function minutesBetween(lastCustomerAt: Date, at: Date): number {
+  return Math.max(0, Math.floor((at.getTime() - lastCustomerAt.getTime()) / 60000));
+}
+
 // POST /api/v1/auto-resolve/queue
 // Body: { conversationId, lastMessageAtSnapshot, reason?, enqueuedBy? }
 autoResolveAgentRoutes.post('/queue', async (req: Request, res: Response) => {
@@ -404,6 +416,11 @@ autoResolveAgentRoutes.post('/queue/claim', async (req: Request, res: Response) 
       }
 
       const messages = await loadConversationMessages(conv._id);
+      // Precomputed so the agent does not do date arithmetic itself. The stale check above
+      // guarantees the customer wrote last, so this is how long the customer has waited.
+      const minutesSinceLastCustomerMessage = conv.lastCustomerMessageAt
+        ? minutesBetween(conv.lastCustomerMessageAt, item.claimedAt ?? now)
+        : null;
       res.json({
         item,
         conversation: {
@@ -414,6 +431,7 @@ autoResolveAgentRoutes.post('/queue/claim', async (req: Request, res: Response) 
           lastCustomerMessageAt: conv.lastCustomerMessageAt,
           lastEmployeeMessageAt: conv.lastEmployeeMessageAt,
           lastMessageAt: conv.lastMessageAt,
+          minutesSinceLastCustomerMessage,
         },
         messages,
       });
@@ -470,14 +488,35 @@ autoResolveAgentRoutes.post('/queue/:id/complete', async (req: Request, res: Res
 
     const confidence = clampConfidence(body.confidence);
 
-    if (verdict === 'needs_reply') {
+    // Media-last guard: the AI cannot see what a picture/file asks for, so a "resolved"
+    // verdict on a room whose latest customer message is media is stored as "needs_reply".
+    // This guard only ever turns resolved into needs_reply, never the reverse.
+    let storedVerdict: 'resolved' | 'needs_reply' = verdict;
+    let storedReason = reason;
+    let overridden = false;
+    if (verdict === 'resolved') {
+      const lastCustomerMessage = await Message.findOne({
+        conversationId: item.conversationId,
+        senderType: 'customer',
+      })
+        .sort({ timestamp: -1, _id: -1 })
+        .select('messageType')
+        .lean();
+      if (lastCustomerMessage && MEDIA_LAST_TYPES.includes(lastCustomerMessage.messageType)) {
+        storedVerdict = 'needs_reply';
+        storedReason = `${MEDIA_LAST_OVERRIDE_PREFIX} | เหตุผลเดิมของ AI: ${reason}`;
+        overridden = true;
+      }
+    }
+
+    if (storedVerdict === 'needs_reply') {
       const updated = await TriageQueueItem.findOneAndUpdate(
         { _id: item._id, status: 'claimed', claimedBy: agentId },
         {
           $set: {
             status: 'done',
-            verdict,
-            verdictReason: reason.slice(0, 500),
+            verdict: storedVerdict,
+            verdictReason: storedReason.slice(0, 500),
             confidence,
             completedAt: new Date(),
           },
@@ -489,7 +528,12 @@ autoResolveAgentRoutes.post('/queue/:id/complete', async (req: Request, res: Res
         res.status(409).json({ error: 'Item changed while completing' });
         return;
       }
-      res.json({ ok: true, verdict, item: updated });
+      res.json({
+        ok: true,
+        verdict: storedVerdict,
+        ...(overridden ? { overridden: true, requestedVerdict: verdict, overrideReason: 'media_last' } : {}),
+        item: updated,
+      });
       return;
     }
 
