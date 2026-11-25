@@ -227,7 +227,7 @@ export function createSmllineCrmMcpServer(
 
   server.tool(
     'claim_triage_item',
-    'Layer 2: claim the oldest urgent conversation Layer 1 could not decide. Returns the item, conversation and its last 30 messages, or {empty:true}. Holds a lease; complete or release before it expires.',
+    'Layer 2: claim the oldest urgent conversation Layer 1 could not decide. Returns the item, conversation (with conversation.minutesSinceLastCustomerMessage, whole minutes the customer has waited, computed by the backend) and its last 30 messages, or {empty:true}. Holds a lease; complete or release before it expires.',
     {
       agentId: z.string().min(1).max(64),
       leaseSeconds: z.number().int().min(30).max(1800).default(300),
@@ -240,7 +240,7 @@ export function createSmllineCrmMcpServer(
 
   server.tool(
     'complete_triage_item',
-    'Layer 2: report the verdict for a claimed item. "resolved" = no reply needed (goes through review/auto mode and the audit log); "needs_reply" = customer still waits (monitor shows ยังไม่ได้ตอบ).',
+    'Layer 2: report the verdict for a claimed item. "resolved" = no reply needed (goes through review/auto mode and the audit log); "needs_reply" = customer still waits (monitor shows ยังไม่ได้ตอบ). If the customer\'s latest message is an image, file, video, audio or location, the backend stores "resolved" as "needs_reply" and answers ok with overridden:true; that is a success, not an error.',
     {
       itemId: z.string().min(1),
       agentId: z.string().min(1).max(64),
