@@ -19,8 +19,11 @@ async function hasValidLogin(req: NextRequest): Promise<boolean> {
   }
 }
 
+// Exact paths only: a prefix match would let "auth/..%2f<anything>" past the login gate.
+const AUTH_PATHS = new Set(['auth/login', 'auth/logout', 'auth/me']);
+
 async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
-  const isAuthPath = path.startsWith('auth/');
+  const isAuthPath = AUTH_PATHS.has(path);
 
   // The page middleware skips /api/*, so this is the only gate: never spend the server-side
   // API key on a caller who is not logged in.
