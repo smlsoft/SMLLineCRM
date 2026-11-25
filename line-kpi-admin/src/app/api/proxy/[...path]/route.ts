@@ -1,15 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { jwtVerify } from 'jose';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
 const API_KEY = process.env.API_KEY ?? '';
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET ?? '');
 const IS_PROD = process.env.NODE_ENV === 'production';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
+/** True when the auth-token cookie is a valid, unexpired JWT signed with JWT_SECRET. */
+async function hasValidLogin(req: NextRequest): Promise<boolean> {
+  const token = req.cookies.get('auth-token')?.value;
+  if (!token || !process.env.JWT_SECRET) return false;
+  try {
+    await jwtVerify(token, JWT_SECRET);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
+  const isAuthPath = path.startsWith('auth/');
+
+  // The page middleware skips /api/*, so this is the only gate: never spend the server-side
+  // API key on a caller who is not logged in.
+  if (!isAuthPath && !(await hasValidLogin(req))) {
+    return NextResponse.json({ error: 'Unauthorized: login required' }, { status: 401 });
+  }
+
   const url = new URL(`/api/v1/${path}`, BACKEND_URL);
   req.nextUrl.searchParams.forEach((value, key) => url.searchParams.set(key, value));
-
-  const isAuthPath = path.startsWith('auth/');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
