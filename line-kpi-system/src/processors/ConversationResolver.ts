@@ -23,47 +23,62 @@ export class ConversationResolver {
 
     const cutoff = new Date(timestamp.getTime() - GAP_MS - BOUNDARY_TOLERANCE_MS);
 
-    // Atomic findOneAndUpdate — find open thread within gap window
-    const existing = await Conversation.findOneAndUpdate(
-      {
-        lineGroupId,
-        status: 'open',
-        lastMessageAt: { $gte: cutoff },
-      },
-      { $set: { lastMessageAt: timestamp } },
-      { sort: { lastMessageAt: -1 }, new: true }
-    );
+    const findActive = () =>
+      Conversation.findOneAndUpdate(
+        {
+          lineGroupId,
+          status: 'open',
+          lastMessageAt: { $gte: cutoff },
+        },
+        { $set: { lastMessageAt: timestamp } },
+        { sort: { lastMessageAt: -1 }, new: true }
+      );
 
+    // Atomic findOneAndUpdate — find open thread within gap window
+    const existing = await findActive();
     if (existing) {
       return existing;
     }
 
-    // No active thread — close any lingering open conversations in this group, then open a new one
+    // No active thread — close the lingering open conversations of this group, then open a new one.
+    // Only threads older than the gap window: a thread a concurrent message opened a moment ago
+    // must stay open so that message and this one share it.
     await Conversation.updateMany(
-      { lineGroupId, status: 'open' },
+      { lineGroupId, status: 'open', lastMessageAt: { $lt: cutoff } },
       { $set: { status: 'closed' } }
     );
 
     const date = dayFloor(timestamp);
 
-    const conv = await Conversation.create({
-      customerGroupId: new Types.ObjectId(customerGroupId),
-      lineGroupId,
-      oaId: new Types.ObjectId(oaId),
-      date,
-      startedAt: timestamp,
-      lastMessageAt: timestamp,
-      status: 'open',
-      participantCustomerIds: [],
-      participantEmployeeIds: [],
-      messageCount: 0,
-      customerMessageCount: 0,
-      employeeMessageCount: 0,
-      tags: [],
-    });
-
-    return conv;
+    try {
+      return await Conversation.create({
+        customerGroupId: new Types.ObjectId(customerGroupId),
+        lineGroupId,
+        oaId: new Types.ObjectId(oaId),
+        date,
+        startedAt: timestamp,
+        lastMessageAt: timestamp,
+        status: 'open',
+        participantCustomerIds: [],
+        participantEmployeeIds: [],
+        messageCount: 0,
+        customerMessageCount: 0,
+        employeeMessageCount: 0,
+        tags: [],
+      });
+    } catch (err: unknown) {
+      // The unique index (one open conversation per lineGroupId) refused this one: a concurrent
+      // message opened the thread first. Join it.
+      if (!isMongoUniqueError(err)) throw err;
+      const winner = await findActive();
+      if (winner) return winner;
+      throw err;
+    }
   }
+}
+
+function isMongoUniqueError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
 }
 
 /**
