@@ -6,6 +6,8 @@ import { config } from '../config';
 const GAP_MS = config.conversationGapHours * 60 * 60 * 1000;
 // 60-second tolerance window to absorb late webhook deliveries at thread boundaries
 const BOUNDARY_TOLERANCE_MS = 60 * 1000;
+// Tries per message before giving up when concurrent messages keep opening threads first
+const MAX_ATTEMPTS = 5;
 
 /**
  * Resolves (or creates) the conversation thread for an incoming message.
@@ -34,46 +36,48 @@ export class ConversationResolver {
         { sort: { lastMessageAt: -1 }, new: true }
       );
 
-    // Atomic findOneAndUpdate — find open thread within gap window
-    const existing = await findActive();
-    if (existing) {
-      return existing;
-    }
-
-    // No active thread — close the lingering open conversations of this group, then open a new one.
-    // Only threads older than the gap window: a thread a concurrent message opened a moment ago
-    // must stay open so that message and this one share it.
-    await Conversation.updateMany(
-      { lineGroupId, status: 'open', lastMessageAt: { $lt: cutoff } },
-      { $set: { status: 'closed' } }
-    );
-
     const date = dayFloor(timestamp);
 
-    try {
-      return await Conversation.create({
-        customerGroupId: new Types.ObjectId(customerGroupId),
-        lineGroupId,
-        oaId: new Types.ObjectId(oaId),
-        date,
-        startedAt: timestamp,
-        lastMessageAt: timestamp,
-        status: 'open',
-        participantCustomerIds: [],
-        participantEmployeeIds: [],
-        messageCount: 0,
-        customerMessageCount: 0,
-        employeeMessageCount: 0,
-        tags: [],
-      });
-    } catch (err: unknown) {
-      // The unique index (one open conversation per lineGroupId) refused this one: a concurrent
-      // message opened the thread first. Join it.
-      if (!isMongoUniqueError(err)) throw err;
-      const winner = await findActive();
-      if (winner) return winner;
-      throw err;
+    // Each attempt: join the open thread within the gap window, else close the older open
+    // threads and open a new one. The unique index (one open conversation per lineGroupId)
+    // refuses the create when a concurrent message opened a thread first; starting over then
+    // joins that thread, or closes it when it lies outside this message's gap window.
+    let refused: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const existing = await findActive();
+      if (existing) {
+        return existing;
+      }
+
+      // Only threads older than the gap window: a thread a concurrent message opened a moment
+      // ago must stay open so that message and this one share it.
+      await Conversation.updateMany(
+        { lineGroupId, status: 'open', lastMessageAt: { $lt: cutoff } },
+        { $set: { status: 'closed' } }
+      );
+
+      try {
+        return await Conversation.create({
+          customerGroupId: new Types.ObjectId(customerGroupId),
+          lineGroupId,
+          oaId: new Types.ObjectId(oaId),
+          date,
+          startedAt: timestamp,
+          lastMessageAt: timestamp,
+          status: 'open',
+          participantCustomerIds: [],
+          participantEmployeeIds: [],
+          messageCount: 0,
+          customerMessageCount: 0,
+          employeeMessageCount: 0,
+          tags: [],
+        });
+      } catch (err: unknown) {
+        if (!isMongoUniqueError(err)) throw err;
+        refused = err;
+      }
     }
+    throw refused;
   }
 }
 
