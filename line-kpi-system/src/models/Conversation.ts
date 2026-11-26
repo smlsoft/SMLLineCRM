@@ -93,6 +93,11 @@ const conversationSchema = new Schema<IConversation>(
   { timestamps: true }
 );
 
+// One open thread per LINE group: two messages arriving together must not each open one
+conversationSchema.index(
+  { lineGroupId: 1 },
+  { unique: true, partialFilterExpression: { status: 'open' } }
+);
 // Thread lookup + gap detection
 conversationSchema.index({ lineGroupId: 1, lastMessageAt: -1 });
 // Nightly cron aggregation
